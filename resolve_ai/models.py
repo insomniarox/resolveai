@@ -4,12 +4,13 @@ Pydantic models are typed data containers. When we create one, Pydantic checks
 that its values match the declared fields. FastAPI also uses the same models to
 describe and validate JSON responses.
 
-The models follow the data through three stages:
+The models follow the data through these stages:
 
 1. ``IncidentContext`` contains raw synthetic operational records.
 2. Those records are normalized into a common list of ``Evidence`` objects.
-3. The fake creates an unverified ``Hypothesis`` and the application promotes it
-   to an ``InvestigationResult`` only after checking its citations.
+3. The fake either creates an unverified ``Hypothesis`` or reports that the
+   available evidence does not match a supported diagnosis.
+4. The application returns a diagnosed or inconclusive ``InvestigationResult``.
 """
 
 from datetime import datetime
@@ -32,6 +33,13 @@ class EvidenceKind(StrEnum):
     AUTHENTICATION_CERTIFICATE_EXPIRED = "authentication_certificate_expired"
     HTTP_REQUEST_FAILED = "http_request_failed"
     CONFIGURATION_CHANGE = "configuration_change"
+
+
+class InvestigationStatus(StrEnum):
+    """Tell API clients whether the workflow reached a supported diagnosis."""
+
+    DIAGNOSED = "diagnosed"
+    INCONCLUSIVE = "inconclusive"
 
 
 class Incident(BaseModel):
@@ -115,16 +123,32 @@ class Hypothesis(BaseModel):
     recommended_remediation: str
 
 
-class InvestigationResult(BaseModel):
-    """Represent the final API result after citation IDs have been resolved.
+class Diagnosis(BaseModel):
+    """Group the fields that exist only when ResolveAI found a diagnosis.
 
-    Unlike ``Hypothesis``, this model contains complete ``Evidence`` objects
-    rather than untrusted citation strings. It is the public response contract.
+    Keeping these values together prevents partially populated diagnoses such as
+    a root cause without a confidence or remediation. This is verified
+    application output, while ``Hypothesis`` remains unverified model-shaped
+    output with citation IDs.
     """
 
-    incident_id: str
     probable_root_cause: str
-    evidence: list[Evidence]
     confidence: float = Field(ge=0, le=1)
     recommended_remediation: str
     human_approval_required: bool
+    supporting_evidence_ids: list[str] = Field(min_length=1)
+
+
+class InvestigationResult(BaseModel):
+    """Represent either a diagnosed or inconclusive investigation.
+
+    ``evidence`` always contains every observation collected by the workflow, in
+    collection order. A diagnosed result identifies its verified supporting
+    subset through ``Diagnosis.supporting_evidence_ids``. An inconclusive result
+    has no diagnosis but still shows what the system inspected.
+    """
+
+    incident_id: str
+    status: InvestigationStatus
+    diagnosis: Diagnosis | None
+    evidence: list[Evidence]

@@ -100,7 +100,51 @@ _INCIDENT_CONTEXTS: dict[str, IncidentContext] = {
             )
         ],
     ),
+    # The available data shows impact but no supported cause. This fixture makes
+    # uncertainty observable: ResolveAI should return an inconclusive result
+    # instead of guessing or turning a normal investigation outcome into a 500.
+    "INC-003": IncidentContext(
+        incident=Incident(
+            id="INC-003",
+            title="Notification delivery failures",
+            description="Outbound notifications began failing.",
+            service="notification-service",
+            started_at=datetime(2026, 8, 8, 12, 0, tzinfo=UTC),
+        ),
+        logs=[
+            LogEntry(
+                id="LOG-005",
+                timestamp=datetime(2026, 8, 8, 12, 0, 1, tzinfo=UTC),
+                service="notification-service",
+                kind=EvidenceKind.HTTP_REQUEST_FAILED,
+                message="POST /messages completed with HTTP 503.",
+            )
+        ],
+        deployments=[
+            Deployment(
+                id="DEP-003",
+                service="notification-service",
+                version="2026.08.08.3",
+                deployed_at=datetime(2026, 8, 8, 8, 0, tzinfo=UTC),
+                configuration_changes=[],
+            )
+        ],
+    ),
 }
+
+
+def list_incidents() -> list[Incident]:
+    """Return safe incident copies in chronological order.
+
+    Discovery returns only each ``Incident`` and does not expose its logs or
+    deployments. Sorting explicitly avoids making the API order depend on where
+    fixtures happen to appear in this file.
+    """
+    incidents = [
+        context.incident.model_copy(deep=True)
+        for context in _INCIDENT_CONTEXTS.values()
+    ]
+    return sorted(incidents, key=lambda incident: incident.started_at)
 
 
 def get_incident_context(incident_id: str) -> IncidentContext | None:

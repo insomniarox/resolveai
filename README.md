@@ -2,8 +2,8 @@
 
 ResolveAI is an AI incident investigation copilot built entirely with synthetic
 operational data. The current Phase 1 slice investigates synthetic connection
-pool and certificate-expiration incidents using plain Python orchestration and
-a deterministic fake hypothesis generator.
+pool and certificate-expiration incidents, and reports when available evidence
+is insufficient for either diagnosis.
 
 ## Run locally
 
@@ -12,11 +12,18 @@ uv sync
 uv run uvicorn resolve_ai.api:app --reload
 ```
 
-Investigate the included incident:
+Discover the available incidents:
+
+```bash
+curl http://127.0.0.1:8000/incidents
+```
+
+Investigate an incident:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/incidents/INC-001/investigate
 curl -X POST http://127.0.0.1:8000/incidents/INC-002/investigate
+curl -X POST http://127.0.0.1:8000/incidents/INC-003/investigate
 ```
 
 ## How one investigation works
@@ -40,12 +47,19 @@ investigation.py: investigate_incident()
                 └── inspect_deployments() ──┤ produce Evidence objects
                                             ▼
 fake_model.py: generate_hypothesis()
-                │ returns unverified Hypothesis
-                ▼
-investigation.py: verify_hypothesis()
-                │ resolves cited evidence IDs
-                ▼
-        InvestigationResult
+                │
+                ├── supported rule ──► unverified Hypothesis
+                │                            │
+                │                            ▼
+                │                  verify_hypothesis()
+                │                            │
+                │                            ▼
+                │                  diagnosed result
+                │
+                └── no rule ───────► inconclusive result
+                                             │
+                                             ▼
+                                  InvestigationResult
                 │ FastAPI serializes it
                 ▼
              JSON response
@@ -95,12 +109,22 @@ into one common format without losing their source identity.
 `generate_hypothesis()` receives only the evidence list. It does not receive
 `INC-001`, so it cannot select a canned answer by incident ID.
 
-The current deterministic rule finds both the connection timeout and pool
-reduction. It returns a `Hypothesis` containing a probable cause, confidence,
-remediation, and the two evidence IDs it wants to cite.
+The pool rule finds a connection timeout and the latest connection-pool setting
+change by comparing evidence timestamps. It produces a diagnosis only when that
+latest change reduced the pool. An older reduction followed by a later
+restoration therefore cannot trigger a stale diagnosis. The scan does not sort
+or mutate the collected evidence list.
+
+When the rule matches, it returns a `Hypothesis` containing a probable cause,
+confidence, remediation, and the two evidence IDs it wants to cite.
 
 The hypothesis is still unverified. A future LLM could cite an identifier that
 does not exist, so model-shaped output is not used as the final response yet.
+
+If no rule matches, the fake raises `InsufficientEvidenceError`. The orchestrator
+treats this specific exception as an expected outcome and builds an inconclusive
+result. It does not catch unrelated exceptions, because those would indicate an
+unexpected application failure rather than uncertainty about the diagnosis.
 
 ### 5. The application verifies citations
 
@@ -108,8 +132,21 @@ does not exist, so model-shaped output is not used as the final response yet.
 objects. It rejects the hypothesis if any cited ID is absent. For Phase 1, it
 does not attempt to prove that the evidence logically guarantees the conclusion.
 
-After this check, citation strings are replaced with their complete `Evidence`
-objects and the application returns an `InvestigationResult`.
+After this check, the verified citation IDs are copied into
+`Diagnosis.supporting_evidence_ids`. Their order remains the order chosen by the
+hypothesis. The root cause, confidence, remediation, approval requirement, and
+supporting IDs therefore form one complete diagnosis.
+
+`InvestigationResult.evidence` always contains every observation collected by
+the workflow, in collection order. For `INC-001`, that includes `LOG-002` even
+though it is not part of the diagnosis's supporting subset. This lets a caller
+distinguish what ResolveAI inspected from what it used to support its conclusion.
+
+For an inconclusive investigation, the result instead contains:
+
+- `status: "inconclusive"`;
+- `diagnosis: null` rather than partially empty diagnosis fields;
+- all evidence that was collected.
 
 ### 6. FastAPI returns JSON
 
@@ -132,6 +169,7 @@ the JSON response received by the caller.
 
 - Data is held in Python fixtures rather than a database.
 - The fake supports only two explicit evidence patterns.
+- Evidence outside those patterns produces a structured inconclusive result.
 - Confidence values are illustrative, not statistically calibrated.
 - Verification checks citation existence, not whether evidence proves causality.
 - Recommended actions are returned but never executed.

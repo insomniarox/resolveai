@@ -28,13 +28,18 @@ def generate_hypothesis(evidence: list[Evidence]) -> Hypothesis:
     real model implementation.
     """
     connection_timeout = _find_connection_timeout(evidence)
-    pool_reduction = _find_connection_pool_reduction(evidence)
+    latest_pool_change = _find_latest_connection_pool_change(evidence)
 
-    # This rule requires both observations. A reduction without a timeout, or a
-    # timeout without a reduction, is not enough for this deterministic mapping.
-    if connection_timeout is not None and pool_reduction is not None:
-        previous_size = pool_reduction.details["previous_value"]
-        new_size = pool_reduction.details["new_value"]
+    # The latest change represents the pool setting in effect when the incident
+    # began. An older reduction must not cause a diagnosis if a later deployment
+    # restored the pool. A timeout or reduction by itself is still insufficient.
+    if (
+        connection_timeout is not None
+        and latest_pool_change is not None
+        and _is_connection_pool_reduction(latest_pool_change)
+    ):
+        previous_size = latest_pool_change.details["previous_value"]
+        new_size = latest_pool_change.details["new_value"]
 
         return Hypothesis(
             probable_root_cause=(
@@ -42,7 +47,7 @@ def generate_hypothesis(evidence: list[Evidence]) -> Hypothesis:
                 f"{previous_size} to {new_size}, causing connection acquisition "
                 "timeouts."
             ),
-            cited_evidence_ids=[pool_reduction.id, connection_timeout.id],
+            cited_evidence_ids=[latest_pool_change.id, connection_timeout.id],
             confidence=0.9,
             recommended_remediation=(
                 f"Restore the database connection pool size to {previous_size}."
@@ -82,23 +87,40 @@ def _find_connection_timeout(evidence: list[Evidence]) -> Evidence | None:
     return None
 
 
-def _find_connection_pool_reduction(evidence: list[Evidence]) -> Evidence | None:
-    """Return the first deployment fact that reduces the pool size."""
+def _find_latest_connection_pool_change(
+    evidence: list[Evidence],
+) -> Evidence | None:
+    """Return the most recent valid pool change without reordering evidence."""
+    latest_change: Evidence | None = None
+
     for item in evidence:
-        if _is_connection_pool_reduction(item):
-            return item
-    return None
+        if not _is_connection_pool_change(item):
+            continue
+
+        if latest_change is None or item.observed_at > latest_change.observed_at:
+            latest_change = item
+
+    return latest_change
 
 
-def _is_connection_pool_reduction(evidence: Evidence) -> bool:
-    """Check the source, setting name, value types, and direction of change."""
-    previous_value = evidence.details.get("previous_value")
-    new_value = evidence.details.get("new_value")
-
+def _is_connection_pool_change(evidence: Evidence) -> bool:
+    """Check that evidence describes a usable connection-pool size change."""
     return (
         evidence.source == EvidenceSource.DEPLOYMENT
         and evidence.kind == EvidenceKind.CONFIGURATION_CHANGE
         and evidence.details.get("setting") == "database_connection_pool_size"
+        and isinstance(evidence.details.get("previous_value"), int)
+        and isinstance(evidence.details.get("new_value"), int)
+    )
+
+
+def _is_connection_pool_reduction(evidence: Evidence) -> bool:
+    """Check whether a valid pool change makes the pool smaller."""
+    previous_value = evidence.details.get("previous_value")
+    new_value = evidence.details.get("new_value")
+
+    return (
+        _is_connection_pool_change(evidence)
         and isinstance(previous_value, int)
         and isinstance(new_value, int)
         and new_value < previous_value

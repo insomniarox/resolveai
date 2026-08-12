@@ -5,7 +5,12 @@ it translates an HTTP request into a call to our Python workflow, then translate
 the returned Pydantic model into JSON. The investigation itself remains in
 ``investigation.py`` so it can be understood and tested without running a server.
 
-Request flow for ``POST /incidents/{incident_id}/investigate``:
+The API has two operations:
+
+* ``GET /incidents`` lets callers discover the available synthetic incidents.
+* ``POST /incidents/{incident_id}/investigate`` runs the investigation workflow.
+
+Investigation request flow:
 
 1. FastAPI extracts ``incident_id`` from the URL.
 2. The route loads synthetic operational data for that ID.
@@ -15,13 +20,19 @@ Request flow for ``POST /incidents/{incident_id}/investigate``:
 
 from fastapi import FastAPI, HTTPException, status
 
-from resolve_ai.fixtures import get_incident_context
+from resolve_ai.fixtures import get_incident_context, list_incidents
 from resolve_ai.investigation import investigate_incident
-from resolve_ai.models import InvestigationResult
+from resolve_ai.models import Incident, InvestigationResult
 
 # Uvicorn imports this application object from ``resolve_ai.api:app`` when the
 # development server starts. Creating it does not start a server by itself.
 app = FastAPI(title="ResolveAI", version="0.1.0")
+
+
+@app.get("/incidents", response_model=list[Incident])
+def list_incidents_endpoint() -> list[Incident]:
+    """Return the incidents that callers can choose to investigate."""
+    return list_incidents()
 
 
 @app.post(

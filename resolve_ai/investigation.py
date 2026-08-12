@@ -1,22 +1,26 @@
 """Coordinate the investigation with ordinary Python functions.
 
 "Orchestration" means deciding which steps run and in which order. For Phase 1
-the complete workflow is a straight line:
+the workflow is a short sequence with one expected outcome branch:
 
 raw context -> collect evidence -> generate hypothesis -> verify -> final result
+                                      |
+                                      +-> no supported hypothesis -> inconclusive
 
 There are no loops, retries, persistent state, or conditional tool calls, so a
 workflow framework such as LangGraph would make this sequence harder to follow.
 """
 
-from resolve_ai.fake_model import generate_hypothesis
+from resolve_ai.fake_model import InsufficientEvidenceError, generate_hypothesis
 from resolve_ai.models import (
+    Diagnosis,
     Evidence,
     EvidenceKind,
     EvidenceSource,
     Hypothesis,
     IncidentContext,
     InvestigationResult,
+    InvestigationStatus,
 )
 
 
@@ -34,10 +38,31 @@ def investigate_incident(context: IncidentContext) -> InvestigationResult:
     deployment_evidence = inspect_deployments(context)
     evidence = log_evidence + deployment_evidence
 
+    # Insufficient evidence is an expected investigation outcome, not a server
+    # failure. Other exceptions are intentionally not caught here because they
+    # represent defects or unexpected failures that should remain visible.
+    try:
+        hypothesis = generate_hypothesis(evidence)
+    except InsufficientEvidenceError:
+        return _build_inconclusive_result(context.incident.id, evidence)
+
     # Hypothesis generation proposes a conclusion; verification is deliberately
     # a separate application step because model output must not be trusted blindly.
-    hypothesis = generate_hypothesis(evidence)
     return verify_hypothesis(context.incident.id, hypothesis, evidence)
+
+
+def _build_inconclusive_result(
+    incident_id: str,
+    evidence: list[Evidence],
+) -> InvestigationResult:
+    """Return collected observations without inventing a root cause or action."""
+    return InvestigationResult(
+        incident_id=incident_id,
+        status=InvestigationStatus.INCONCLUSIVE,
+        diagnosis=None,
+        # The result owns its list container; list() preserves collection order.
+        evidence=list(evidence),
+    )
 
 
 def inspect_logs(context: IncidentContext) -> list[Evidence]:
@@ -119,8 +144,8 @@ def verify_hypothesis(
     Phase 1 deliberately does not judge whether cited evidence semantically
     proves the claim. That more difficult evaluation problem remains postponed.
     """
-    # Turn the list into a lookup table such as {"LOG-001": Evidence(...)}.
-    # This makes checking and resolving each citation direct and readable.
+    # Turn the list into a lookup table such as {"LOG-001": Evidence(...)} so
+    # each model-provided citation can be checked directly.
     evidence_by_id = {item.id: item for item in evidence}
     missing_ids = [
         evidence_id
@@ -132,20 +157,22 @@ def verify_hypothesis(
         missing = ", ".join(missing_ids)
         raise UnknownEvidenceError(f"Hypothesis cited unknown evidence: {missing}")
 
-    # Return only the evidence chosen by the hypothesis, in citation order. The
-    # uncited observations remain available internally but are not presented as
-    # support for a conclusion the fake did not associate with them.
-    cited_evidence = [
-        evidence_by_id[evidence_id] for evidence_id in hypothesis.cited_evidence_ids
-    ]
-
     return InvestigationResult(
         incident_id=incident_id,
-        probable_root_cause=hypothesis.probable_root_cause,
-        evidence=cited_evidence,
-        confidence=hypothesis.confidence,
-        recommended_remediation=hypothesis.recommended_remediation,
-        # Both current remediations mutate runtime configuration, so approval is
-        # application policy rather than a decision delegated to the fake model.
-        human_approval_required=True,
+        status=InvestigationStatus.DIAGNOSED,
+        diagnosis=Diagnosis(
+            probable_root_cause=hypothesis.probable_root_cause,
+            confidence=hypothesis.confidence,
+            recommended_remediation=hypothesis.recommended_remediation,
+            # Both current remediations mutate runtime configuration, so approval
+            # is application policy rather than a fake-model decision.
+            human_approval_required=True,
+            # Diagnosis is a new domain result, so copy the mutable citation list
+            # instead of sharing Hypothesis internal state. list() keeps the
+            # hypothesis citation order unchanged.
+            supporting_evidence_ids=list(hypothesis.cited_evidence_ids),
+        ),
+        # Include every collected observation, not only the supporting subset.
+        # The shallow list copy gives the result its own ordered container.
+        evidence=list(evidence),
     )
