@@ -8,9 +8,11 @@ The models follow the data through these stages:
 
 1. ``IncidentContext`` contains raw synthetic operational records.
 2. Those records are normalized into a common list of ``Evidence`` objects.
-3. The fake either creates an unverified ``Hypothesis`` or reports that the
-   available evidence does not match a supported diagnosis.
-4. The application returns a diagnosed or inconclusive ``InvestigationResult``.
+3. Semantic retrieval produces ordered ``RetrievedRunbook`` reference knowledge.
+4. The evidence-only fake either creates an unverified ``Hypothesis`` or reports
+   that the available evidence does not match a supported diagnosis.
+5. The application returns a diagnosed or inconclusive ``InvestigationResult``
+   containing evidence and retrieved knowledge as separate lists.
 """
 
 from datetime import datetime
@@ -110,6 +112,21 @@ class Evidence(BaseModel):
     details: dict[str, str | int] = Field(default_factory=dict)
 
 
+class RetrievedRunbook(BaseModel):
+    """Represent operational guidance selected as relevant to an incident.
+
+    A retrieved runbook is reference knowledge, not an observed incident fact.
+    Its similarity score describes query relevance and must not be interpreted
+    as causal evidence or diagnosis confidence.
+    """
+
+    id: str
+    title: str
+    service: str
+    content: str
+    similarity_score: float
+
+
 class Hypothesis(BaseModel):
     """Represent unverified model-shaped output.
 
@@ -142,13 +159,15 @@ class Diagnosis(BaseModel):
 class InvestigationResult(BaseModel):
     """Represent either a diagnosed or inconclusive investigation.
 
-    ``evidence`` always contains every observation collected by the workflow, in
-    collection order. A diagnosed result identifies its verified supporting
-    subset through ``Diagnosis.supporting_evidence_ids``. An inconclusive result
-    has no diagnosis but still shows what the system inspected.
+    ``evidence`` contains observations collected from this incident, while
+    ``retrieved_runbooks`` contains ordered reference knowledge found for it.
+    Keeping the lists separate prevents semantic similarity from being presented
+    as causal support. A diagnosed result identifies its verified evidence subset
+    through ``Diagnosis.supporting_evidence_ids``.
     """
 
     incident_id: str
     status: InvestigationStatus
     diagnosis: Diagnosis | None
     evidence: list[Evidence]
+    retrieved_runbooks: list[RetrievedRunbook]

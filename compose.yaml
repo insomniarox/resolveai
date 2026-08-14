@@ -1,0 +1,15 @@
+services:
+  database:
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
+    environment:
+      POSTGRES_DB: resolveai
+      POSTGRES_USER: resolveai
+      POSTGRES_PASSWORD: resolveai
+    ports:
+      - "5432:5432"
+    volumes:
+      - resolveai_postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+volumes:
+  resolveai_postgres_data:

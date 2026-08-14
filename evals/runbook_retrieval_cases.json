@@ -1,0 +1,74 @@
+[
+  {
+    "id": "pool-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "database connection pool timeout",
+    "expected_runbook_id": "RUN-001"
+  },
+  {
+    "id": "pool-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Payment requests hang while waiting for a reusable database session",
+    "expected_runbook_id": "RUN-001"
+  },
+  {
+    "id": "certificate-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "expired certificate rotation",
+    "expected_runbook_id": "RUN-002"
+  },
+  {
+    "id": "certificate-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Clients cannot prove their identity because their credential is no longer valid",
+    "expected_runbook_id": "RUN-002"
+  },
+  {
+    "id": "provider-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "notification provider timeout",
+    "expected_runbook_id": "RUN-003"
+  },
+  {
+    "id": "provider-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Messages are not delivered because the downstream vendor stopped responding",
+    "expected_runbook_id": "RUN-003"
+  },
+  {
+    "id": "lock-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "blocked database transactions lock contention",
+    "expected_runbook_id": "RUN-004"
+  },
+  {
+    "id": "lock-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Checkout updates stop completing because one transaction has not released the rows needed by the others",
+    "expected_runbook_id": "RUN-004"
+  },
+  {
+    "id": "upstream-tls-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "upstream TLS certificate hostname mismatch",
+    "expected_runbook_id": "RUN-005"
+  },
+  {
+    "id": "upstream-tls-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "The service rejects the remote endpoint because the identity it presents belongs to a different host",
+    "expected_runbook_id": "RUN-005"
+  },
+  {
+    "id": "queue-backlog-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "notification queue backlog worker lag",
+    "expected_runbook_id": "RUN-006"
+  },
+  {
+    "id": "queue-backlog-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Messages keep waiting to be sent because delivery workers cannot drain them as fast as they arrive",
+    "expected_runbook_id": "RUN-006"
+  }
+]

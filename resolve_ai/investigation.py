@@ -1,11 +1,11 @@
 """Coordinate the investigation with ordinary Python functions.
 
-"Orchestration" means deciding which steps run and in which order. For Phase 1
-the workflow is a short sequence with one expected outcome branch:
+"Orchestration" means deciding which steps run and in which order. The current
+workflow is a short sequence with one expected outcome branch:
 
-raw context -> collect evidence -> generate hypothesis -> verify -> final result
-                                      |
-                                      +-> no supported hypothesis -> inconclusive
+raw context -> collect evidence -> retrieve runbooks -> generate hypothesis
+                                                        |
+                                                        +-> no match -> inconclusive
 
 There are no loops, retries, persistent state, or conditional tool calls, so a
 workflow framework such as LangGraph would make this sequence harder to follow.
@@ -21,22 +21,38 @@ from resolve_ai.models import (
     IncidentContext,
     InvestigationResult,
     InvestigationStatus,
+    RetrievedRunbook,
 )
+from resolve_ai.retrieval import semantic_search_runbooks
+
+_RUNBOOK_RETRIEVAL_LIMIT = 3
 
 
 class UnknownEvidenceError(Exception):
     """Raised when a hypothesis cites evidence that was not collected."""
 
 
-def investigate_incident(context: IncidentContext) -> InvestigationResult:
-    """Run the complete synchronous Phase 1 workflow for one incident.
+def investigate_incident(
+    context: IncidentContext,
+    database_url: str,
+) -> InvestigationResult:
+    """Run the synchronous workflow with evidence and retrieved knowledge.
 
     This is the main domain function. It accepts data rather than an HTTP request,
     which is why tests can call it directly without starting FastAPI or Uvicorn.
+    PostgreSQL failures intentionally propagate because missing retrieval is a
+    system failure, not evidence that the incident is inconclusive.
     """
     log_evidence = inspect_logs(context)
     deployment_evidence = inspect_deployments(context)
     evidence = log_evidence + deployment_evidence
+
+    retrieval_query = build_runbook_query(context, evidence)
+    retrieved_runbooks = semantic_search_runbooks(
+        database_url=database_url,
+        query=retrieval_query,
+        limit=_RUNBOOK_RETRIEVAL_LIMIT,
+    )
 
     # Insufficient evidence is an expected investigation outcome, not a server
     # failure. Other exceptions are intentionally not caught here because they
@@ -44,16 +60,40 @@ def investigate_incident(context: IncidentContext) -> InvestigationResult:
     try:
         hypothesis = generate_hypothesis(evidence)
     except InsufficientEvidenceError:
-        return _build_inconclusive_result(context.incident.id, evidence)
+        return _build_inconclusive_result(
+            context.incident.id,
+            evidence,
+            retrieved_runbooks,
+        )
 
     # Hypothesis generation proposes a conclusion; verification is deliberately
     # a separate application step because model output must not be trusted blindly.
-    return verify_hypothesis(context.incident.id, hypothesis, evidence)
+    return verify_hypothesis(
+        context.incident.id,
+        hypothesis,
+        evidence,
+        retrieved_runbooks,
+    )
+
+
+def build_runbook_query(
+    context: IncidentContext,
+    evidence: list[Evidence],
+) -> str:
+    """Build a deterministic query from the report and observed facts."""
+    lines = [
+        f"Incident: {context.incident.title}",
+        f"Description: {context.incident.description}",
+        "Observed evidence:",
+    ]
+    lines.extend(f"- {item.summary}" for item in evidence)
+    return "\n".join(lines)
 
 
 def _build_inconclusive_result(
     incident_id: str,
     evidence: list[Evidence],
+    retrieved_runbooks: list[RetrievedRunbook],
 ) -> InvestigationResult:
     """Return collected observations without inventing a root cause or action."""
     return InvestigationResult(
@@ -62,6 +102,7 @@ def _build_inconclusive_result(
         diagnosis=None,
         # The result owns its list container; list() preserves collection order.
         evidence=list(evidence),
+        retrieved_runbooks=list(retrieved_runbooks),
     )
 
 
@@ -138,11 +179,13 @@ def verify_hypothesis(
     incident_id: str,
     hypothesis: Hypothesis,
     evidence: list[Evidence],
+    retrieved_runbooks: list[RetrievedRunbook],
 ) -> InvestigationResult:
     """Promote a hypothesis after checking only that its citations exist.
 
-    Phase 1 deliberately does not judge whether cited evidence semantically
-    proves the claim. That more difficult evaluation problem remains postponed.
+    This milestone deliberately does not judge whether cited evidence
+    semantically proves the claim. That more difficult evaluation problem remains
+    postponed.
     """
     # Turn the list into a lookup table such as {"LOG-001": Evidence(...)} so
     # each model-provided citation can be checked directly.
@@ -175,4 +218,6 @@ def verify_hypothesis(
         # Include every collected observation, not only the supporting subset.
         # The shallow list copy gives the result its own ordered container.
         evidence=list(evidence),
+        # Retrieved guidance remains separate from observed and cited evidence.
+        retrieved_runbooks=list(retrieved_runbooks),
     )

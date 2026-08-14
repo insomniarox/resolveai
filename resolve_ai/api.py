@@ -14,9 +14,11 @@ Investigation request flow:
 
 1. FastAPI extracts ``incident_id`` from the URL.
 2. The route loads synthetic operational data for that ID.
-3. The route passes that data to ``investigate_incident``.
+3. The route passes that data and the configured database to the workflow.
 4. FastAPI serializes the returned ``InvestigationResult`` as JSON.
 """
+
+import os
 
 from fastapi import FastAPI, HTTPException, status
 
@@ -27,6 +29,14 @@ from resolve_ai.models import Incident, InvestigationResult
 # Uvicorn imports this application object from ``resolve_ai.api:app`` when the
 # development server starts. Creating it does not start a server by itself.
 app = FastAPI(title="ResolveAI", version="0.1.0")
+
+
+def _get_database_url() -> str:
+    """Read the required retrieval database configuration explicitly."""
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url.strip():
+        raise RuntimeError("DATABASE_URL must be set to investigate an incident")
+    return database_url
 
 
 @app.get("/incidents", response_model=list[Incident])
@@ -56,4 +66,4 @@ def investigate_incident_endpoint(incident_id: str) -> InvestigationResult:
             detail=f"Incident {incident_id} was not found.",
         )
 
-    return investigate_incident(context)
+    return investigate_incident(context, database_url=_get_database_url())

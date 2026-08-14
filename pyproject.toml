@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.141.1",
+    "fastembed>=0.8.0",
     "pydantic>=2.13.4",
+    "psycopg[binary]>=3.2.0",
     "uvicorn>=0.52.1",
 ]
 
@@ -22,3 +24,6 @@ target-version = "py313"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: requires a real PostgreSQL database",
+]
