@@ -1,0 +1,207 @@
+[
+  {
+    "id": "profile-dependent-connection-pool-exhaustion",
+    "context": {
+      "incident": {
+        "id": "INC-008",
+        "title": "Checkout database operations stall after client-profile rollout",
+        "description": "Checkout requests began failing after a database-client profile change, while primary database health remained normal.",
+        "service": "payment-service",
+        "started_at": "2026-08-15T09:52:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-017",
+          "timestamp": "2026-08-15T09:52:01Z",
+          "service": "payment-service",
+          "kind": "upstream_request_failed",
+          "message": "Database client admission failed after 30,000 ms with internal code PGX-17; state was amber.",
+          "details": {
+            "internal_code": "PGX-17",
+            "state": "amber",
+            "wait_ms": 30000
+          }
+        },
+        {
+          "id": "LOG-018",
+          "timestamp": "2026-08-15T09:52:02Z",
+          "service": "payment-service",
+          "kind": "upstream_health_check",
+          "message": "Primary database probe completed in 18 ms; transaction count and lock waits were within baseline.",
+          "details": {
+            "latency_ms": 18,
+            "transaction_state": "within_baseline",
+            "lock_wait_state": "within_baseline"
+          }
+        },
+        {
+          "id": "LOG-019",
+          "timestamp": "2026-08-15T09:52:03Z",
+          "service": "payment-service",
+          "kind": "http_request_failed",
+          "message": "POST /checkout returned HTTP 500.",
+          "details": {}
+        }
+      ],
+      "deployments": [
+        {
+          "id": "DEP-004",
+          "service": "payment-service",
+          "version": "2026.08.15.1",
+          "deployed_at": "2026-08-15T09:45:00Z",
+          "configuration_changes": [
+            {
+              "setting": "database_client_profile_id",
+              "previous_value": 4,
+              "new_value": 7
+            }
+          ]
+        }
+      ]
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "connection_pool_exhaustion",
+      "required_supporting_evidence_ids": [
+        "DEP-004:database_client_profile_id",
+        "LOG-017"
+      ],
+      "acceptable_supporting_evidence_ids": [
+        "DEP-004:database_client_profile_id",
+        "LOG-017",
+        "LOG-018"
+      ],
+      "relevant_runbook_ids": ["RUN-007"],
+      "remediation_label": "restore_previous_connection_pool_size",
+      "prohibited_root_cause_labels": ["database_lock_contention"]
+    }
+  },
+  {
+    "id": "profile-dependent-upstream-tls-identity-mismatch",
+    "context": {
+      "incident": {
+        "id": "INC-009",
+        "title": "Tax quote requests fail after connector-profile change",
+        "description": "Tax quote calls began failing TLS validation after a connector routing profile was changed.",
+        "service": "payment-service",
+        "started_at": "2026-08-15T10:25:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-020",
+          "timestamp": "2026-08-15T10:25:01Z",
+          "service": "payment-service",
+          "kind": "tls_handshake_validation_failed",
+          "message": "TLS validation rejected the peer while tax connector profile 42 was active; internal code TLS-PV-2.",
+          "details": {
+            "connector_profile_id": 42,
+            "internal_code": "TLS-PV-2"
+          }
+        },
+        {
+          "id": "LOG-021",
+          "timestamp": "2026-08-15T10:25:02Z",
+          "service": "payment-service",
+          "kind": "http_request_failed",
+          "message": "POST /tax-quote returned HTTP 502.",
+          "details": {}
+        }
+      ],
+      "deployments": [
+        {
+          "id": "DEP-005",
+          "service": "payment-service",
+          "version": "2026.08.15.2",
+          "deployed_at": "2026-08-15T10:18:00Z",
+          "configuration_changes": [
+            {
+              "setting": "tax_connector_profile_id",
+              "previous_value": 41,
+              "new_value": 42
+            }
+          ]
+        }
+      ]
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "upstream_tls_identity_mismatch",
+      "required_supporting_evidence_ids": [
+        "DEP-005:tax_connector_profile_id",
+        "LOG-020"
+      ],
+      "acceptable_supporting_evidence_ids": [
+        "DEP-005:tax_connector_profile_id",
+        "LOG-020"
+      ],
+      "relevant_runbook_ids": ["RUN-008"],
+      "remediation_label": "correct_upstream_certificate_identity",
+      "prohibited_root_cause_labels": ["expired_client_certificate"]
+    }
+  },
+  {
+    "id": "lifecycle-dependent-notification-provider-outage",
+    "context": {
+      "incident": {
+        "id": "INC-010",
+        "title": "Notifications remain unresolved despite normal send throughput",
+        "description": "Notification delay increased while delivery workers and the provider gateway health check appeared normal.",
+        "service": "notification-service",
+        "started_at": "2026-08-15T11:10:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-022",
+          "timestamp": "2026-08-15T11:10:01Z",
+          "service": "notification-service",
+          "kind": "notification_queue_metrics",
+          "message": "Notification lifecycle state S4 grew from 40 to 3,150 items; S1 remained at 38; oldest S4 item was 900 seconds old.",
+          "details": {
+            "s4_previous_items": 40,
+            "s4_current_items": 3150,
+            "s1_current_items": 38,
+            "oldest_s4_item_age_seconds": 900
+          }
+        },
+        {
+          "id": "LOG-023",
+          "timestamp": "2026-08-15T11:10:02Z",
+          "service": "notification-service",
+          "kind": "notification_worker_metrics",
+          "message": "Twelve of twelve delivery workers were active and processing 300 items per minute.",
+          "details": {
+            "active_workers": 12,
+            "desired_workers": 12,
+            "processing_rate_per_minute": 300
+          }
+        },
+        {
+          "id": "LOG-024",
+          "timestamp": "2026-08-15T11:10:03Z",
+          "service": "notification-service",
+          "kind": "upstream_health_check",
+          "message": "Provider gateway health check succeeded in 85 ms.",
+          "details": {
+            "provider": "mail-provider",
+            "status": "healthy",
+            "latency_ms": 85
+          }
+        }
+      ],
+      "deployments": []
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "notification_provider_outage",
+      "required_supporting_evidence_ids": ["LOG-022", "LOG-023"],
+      "acceptable_supporting_evidence_ids": [
+        "LOG-022",
+        "LOG-023",
+        "LOG-024"
+      ],
+      "relevant_runbook_ids": ["RUN-009"],
+      "remediation_label": "restore_or_fail_over_notification_provider",
+      "prohibited_root_cause_labels": ["notification_worker_backlog"]
+    }
+  }
+]

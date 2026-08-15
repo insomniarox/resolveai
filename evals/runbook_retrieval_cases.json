@@ -70,5 +70,41 @@
     "query_kind": "paraphrased",
     "query": "Messages keep waiting to be sent because delivery workers cannot drain them as fast as they arrive",
     "expected_runbook_id": "RUN-006"
+  },
+  {
+    "id": "database-client-profile-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "database client admission after changing the checkout session profile",
+    "expected_runbook_id": "RUN-007"
+  },
+  {
+    "id": "database-client-profile-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Payment requests cannot obtain a reusable database session after a client policy rollout, but the primary database probe is healthy",
+    "expected_runbook_id": "RUN-007"
+  },
+  {
+    "id": "tax-route-profile-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "tax connector TLS peer validation after a routing profile change",
+    "expected_runbook_id": "RUN-008"
+  },
+  {
+    "id": "tax-route-profile-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Tax quotes fail secure transport checks after payment switches which upstream route it uses",
+    "expected_runbook_id": "RUN-008"
+  },
+  {
+    "id": "notification-lifecycle-direct",
+    "query_kind": "direct_vocabulary",
+    "query": "notification lifecycle state grows after provider acceptance while worker throughput stays normal",
+    "expected_runbook_id": "RUN-009"
+  },
+  {
+    "id": "notification-lifecycle-paraphrased",
+    "query_kind": "paraphrased",
+    "query": "Notifications remain unresolved while all delivery workers sustain normal send throughput and the provider gateway check succeeds",
+    "expected_runbook_id": "RUN-009"
   }
 ]

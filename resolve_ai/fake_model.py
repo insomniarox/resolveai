@@ -13,11 +13,16 @@ The fake performs only two supported mappings:
 It does not inspect incident IDs, call an external service, or invent evidence.
 """
 
-from resolve_ai.models import Evidence, EvidenceKind, EvidenceSource, Hypothesis
-
-
-class InsufficientEvidenceError(Exception):
-    """Raised when the fake model cannot derive its supported hypothesis."""
+from resolve_ai.models import (
+    Evidence,
+    EvidenceKind,
+    EvidenceSource,
+    Hypothesis,
+    Incident,
+    RetrievedRunbook,
+    RootCauseLabel,
+)
+from resolve_ai.reasoning import InsufficientEvidenceError
 
 
 def generate_hypothesis(evidence: list[Evidence]) -> Hypothesis:
@@ -42,6 +47,7 @@ def generate_hypothesis(evidence: list[Evidence]) -> Hypothesis:
         new_size = latest_pool_change.details["new_value"]
 
         return Hypothesis(
+            root_cause_label=RootCauseLabel.CONNECTION_POOL_EXHAUSTION,
             probable_root_cause=(
                 "A deployment reduced the database connection pool from "
                 f"{previous_size} to {new_size}, causing connection acquisition "
@@ -59,6 +65,7 @@ def generate_hypothesis(evidence: list[Evidence]) -> Hypothesis:
     if expired_certificate is not None:
         certificate_name = expired_certificate.details["certificate_name"]
         return Hypothesis(
+            root_cause_label=RootCauseLabel.EXPIRED_CLIENT_CERTIFICATE,
             probable_root_cause=(
                 f"The {certificate_name} authentication certificate expired, "
                 "causing authentication requests to fail."
@@ -74,6 +81,16 @@ def generate_hypothesis(evidence: list[Evidence]) -> Hypothesis:
     raise InsufficientEvidenceError(
         "No supported hypothesis can be derived from the supplied evidence."
     )
+
+
+def generate_fake_hypothesis(
+    incident: Incident,
+    evidence: list[Evidence],
+    retrieved_runbooks: list[RetrievedRunbook],
+) -> Hypothesis:
+    """Adapt the evidence-only fake to the shared reasoning boundary."""
+    del incident, retrieved_runbooks
+    return generate_hypothesis(evidence)
 
 
 def _find_connection_timeout(evidence: list[Evidence]) -> Evidence | None:

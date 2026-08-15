@@ -1,6 +1,11 @@
 .venv/
+.env
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
 *:Zone.Identifier
+web/node_modules/
+web/.next/
+web/.env.local
+web/*.tsbuildinfo

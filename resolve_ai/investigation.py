@@ -11,7 +11,7 @@ There are no loops, retries, persistent state, or conditional tool calls, so a
 workflow framework such as LangGraph would make this sequence harder to follow.
 """
 
-from resolve_ai.fake_model import InsufficientEvidenceError, generate_hypothesis
+from resolve_ai.fake_model import generate_fake_hypothesis
 from resolve_ai.models import (
     Diagnosis,
     Evidence,
@@ -23,6 +23,7 @@ from resolve_ai.models import (
     InvestigationStatus,
     RetrievedRunbook,
 )
+from resolve_ai.reasoning import HypothesisGenerator, InsufficientEvidenceError
 from resolve_ai.retrieval import semantic_search_runbooks
 
 _RUNBOOK_RETRIEVAL_LIMIT = 3
@@ -35,6 +36,7 @@ class UnknownEvidenceError(Exception):
 def investigate_incident(
     context: IncidentContext,
     database_url: str,
+    hypothesis_generator: HypothesisGenerator = generate_fake_hypothesis,
 ) -> InvestigationResult:
     """Run the synchronous workflow with evidence and retrieved knowledge.
 
@@ -58,7 +60,11 @@ def investigate_incident(
     # failure. Other exceptions are intentionally not caught here because they
     # represent defects or unexpected failures that should remain visible.
     try:
-        hypothesis = generate_hypothesis(evidence)
+        hypothesis = hypothesis_generator(
+            context.incident,
+            evidence,
+            retrieved_runbooks,
+        )
     except InsufficientEvidenceError:
         return _build_inconclusive_result(
             context.incident.id,
@@ -204,6 +210,7 @@ def verify_hypothesis(
         incident_id=incident_id,
         status=InvestigationStatus.DIAGNOSED,
         diagnosis=Diagnosis(
+            root_cause_label=hypothesis.root_cause_label,
             probable_root_cause=hypothesis.probable_root_cause,
             confidence=hypothesis.confidence,
             recommended_remediation=hypothesis.recommended_remediation,

@@ -1,0 +1,371 @@
+[
+  {
+    "id": "connection-pool-exhaustion",
+    "context": {
+      "incident": {
+        "id": "INC-001",
+        "title": "Payments API returning HTTP 500 responses",
+        "description": "Payment requests began failing after the morning deployment.",
+        "service": "payment-service",
+        "started_at": "2026-08-08T10:37:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-001",
+          "timestamp": "2026-08-08T10:37:12Z",
+          "service": "payment-service",
+          "kind": "database_connection_timeout",
+          "message": "Timed out while acquiring a database connection.",
+          "details": {}
+        },
+        {
+          "id": "LOG-002",
+          "timestamp": "2026-08-08T10:37:13Z",
+          "service": "payment-service",
+          "kind": "http_request_failed",
+          "message": "POST /payments completed with HTTP 500.",
+          "details": {}
+        }
+      ],
+      "deployments": [
+        {
+          "id": "DEP-001",
+          "service": "payment-service",
+          "version": "2026.08.08.1",
+          "deployed_at": "2026-08-08T10:31:00Z",
+          "configuration_changes": [
+            {
+              "setting": "database_connection_pool_size",
+              "previous_value": 20,
+              "new_value": 5
+            }
+          ]
+        }
+      ]
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "connection_pool_exhaustion",
+      "required_supporting_evidence_ids": [
+        "DEP-001:database_connection_pool_size",
+        "LOG-001"
+      ],
+      "acceptable_supporting_evidence_ids": [
+        "DEP-001:database_connection_pool_size",
+        "LOG-001"
+      ],
+      "relevant_runbook_ids": ["RUN-001"],
+      "remediation_label": "restore_previous_connection_pool_size",
+      "prohibited_root_cause_labels": ["database_lock_contention"]
+    }
+  },
+  {
+    "id": "expired-client-certificate",
+    "context": {
+      "incident": {
+        "id": "INC-002",
+        "title": "Authentication requests rejected",
+        "description": "Services began receiving authentication failures.",
+        "service": "authentication-service",
+        "started_at": "2026-08-08T11:05:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-003",
+          "timestamp": "2026-08-08T11:05:01Z",
+          "service": "authentication-service",
+          "kind": "authentication_certificate_expired",
+          "message": "The payment-api-client certificate has expired.",
+          "details": {"certificate_name": "payment-api-client"}
+        },
+        {
+          "id": "LOG-004",
+          "timestamp": "2026-08-08T11:05:02Z",
+          "service": "authentication-service",
+          "kind": "http_request_failed",
+          "message": "POST /tokens completed with HTTP 401.",
+          "details": {}
+        }
+      ],
+      "deployments": [
+        {
+          "id": "DEP-002",
+          "service": "authentication-service",
+          "version": "2026.08.08.2",
+          "deployed_at": "2026-08-08T09:00:00Z",
+          "configuration_changes": []
+        }
+      ]
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "expired_client_certificate",
+      "required_supporting_evidence_ids": ["LOG-003"],
+      "acceptable_supporting_evidence_ids": ["LOG-003"],
+      "relevant_runbook_ids": ["RUN-002"],
+      "remediation_label": "rotate_expired_client_certificate",
+      "prohibited_root_cause_labels": ["upstream_tls_identity_mismatch"]
+    }
+  },
+  {
+    "id": "ambiguous-notification-failure",
+    "context": {
+      "incident": {
+        "id": "INC-003",
+        "title": "Notification delivery failures",
+        "description": "Outbound notifications began failing.",
+        "service": "notification-service",
+        "started_at": "2026-08-08T12:00:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-005",
+          "timestamp": "2026-08-08T12:00:01Z",
+          "service": "notification-service",
+          "kind": "http_request_failed",
+          "message": "POST /messages completed with HTTP 503.",
+          "details": {}
+        }
+      ],
+      "deployments": [
+        {
+          "id": "DEP-003",
+          "service": "notification-service",
+          "version": "2026.08.08.3",
+          "deployed_at": "2026-08-08T08:00:00Z",
+          "configuration_changes": []
+        }
+      ]
+    },
+    "ground_truth": {
+      "expected_status": "inconclusive",
+      "root_cause_label": null,
+      "required_supporting_evidence_ids": [],
+      "acceptable_supporting_evidence_ids": [],
+      "relevant_runbook_ids": ["RUN-003", "RUN-006"],
+      "remediation_label": null,
+      "prohibited_root_cause_labels": [
+        "notification_provider_outage",
+        "notification_worker_backlog"
+      ]
+    }
+  },
+  {
+    "id": "database-lock-contention",
+    "context": {
+      "incident": {
+        "id": "INC-004",
+        "title": "Checkout updates stop completing",
+        "description": "Payment updates began timing out while database load remained normal.",
+        "service": "payment-service",
+        "started_at": "2026-08-08T12:30:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-006",
+          "timestamp": "2026-08-08T12:30:03Z",
+          "service": "payment-service",
+          "kind": "database_lock_wait",
+          "message": "Checkout update waited 30000 ms for a row lock.",
+          "details": {
+            "waiting_transaction": 932,
+            "blocking_transaction": 841,
+            "relation": "payments",
+            "wait_ms": 30000
+          }
+        },
+        {
+          "id": "LOG-007",
+          "timestamp": "2026-08-08T12:30:04Z",
+          "service": "payment-service",
+          "kind": "database_transaction_state",
+          "message": "Database transaction 841 has remained open for 185 seconds.",
+          "details": {
+            "transaction": 841,
+            "state": "idle_in_transaction",
+            "age_seconds": 185,
+            "locked_relation": "payments"
+          }
+        },
+        {
+          "id": "LOG-008",
+          "timestamp": "2026-08-08T12:30:05Z",
+          "service": "payment-service",
+          "kind": "http_request_failed",
+          "message": "POST /checkout completed with HTTP 500.",
+          "details": {}
+        }
+      ],
+      "deployments": []
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "database_lock_contention",
+      "required_supporting_evidence_ids": ["LOG-006", "LOG-007"],
+      "acceptable_supporting_evidence_ids": ["LOG-006", "LOG-007"],
+      "relevant_runbook_ids": ["RUN-004"],
+      "remediation_label": "resolve_blocking_transaction_and_reduce_transaction_scope",
+      "prohibited_root_cause_labels": ["connection_pool_exhaustion"]
+    }
+  },
+  {
+    "id": "upstream-tls-identity-mismatch",
+    "context": {
+      "incident": {
+        "id": "INC-005",
+        "title": "Tax calculation requests failing",
+        "description": "Payment requests cannot obtain tax quotes from an upstream service.",
+        "service": "payment-service",
+        "started_at": "2026-08-08T13:00:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-009",
+          "timestamp": "2026-08-08T13:00:02Z",
+          "service": "payment-service",
+          "kind": "tls_handshake_validation_failed",
+          "message": "TLS validation failed while connecting to tax.internal.",
+          "details": {
+            "requested_hostname": "tax.internal",
+            "certificate_dns_name": "billing.internal",
+            "validation_error": "hostname_mismatch"
+          }
+        },
+        {
+          "id": "LOG-010",
+          "timestamp": "2026-08-08T13:00:03Z",
+          "service": "payment-service",
+          "kind": "http_request_failed",
+          "message": "POST /tax-quote completed with HTTP 502.",
+          "details": {}
+        }
+      ],
+      "deployments": []
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "upstream_tls_identity_mismatch",
+      "required_supporting_evidence_ids": ["LOG-009"],
+      "acceptable_supporting_evidence_ids": ["LOG-009"],
+      "relevant_runbook_ids": ["RUN-005"],
+      "remediation_label": "correct_upstream_certificate_identity",
+      "prohibited_root_cause_labels": ["expired_client_certificate"]
+    }
+  },
+  {
+    "id": "notification-provider-outage",
+    "context": {
+      "incident": {
+        "id": "INC-006",
+        "title": "Email notifications failing",
+        "description": "Delivery workers cannot submit outbound email messages.",
+        "service": "notification-service",
+        "started_at": "2026-08-08T13:30:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-011",
+          "timestamp": "2026-08-08T13:30:02Z",
+          "service": "notification-service",
+          "kind": "upstream_request_failed",
+          "message": "Notification provider send request returned HTTP 503.",
+          "details": {"provider": "mail-provider", "status_code": 503}
+        },
+        {
+          "id": "LOG-012",
+          "timestamp": "2026-08-08T13:30:05Z",
+          "service": "notification-service",
+          "kind": "upstream_health_check",
+          "message": "Notification provider health check timed out on five consecutive attempts.",
+          "details": {
+            "provider": "mail-provider",
+            "status": "unavailable",
+            "consecutive_failures": 5
+          }
+        },
+        {
+          "id": "LOG-013",
+          "timestamp": "2026-08-08T13:30:06Z",
+          "service": "notification-service",
+          "kind": "notification_queue_metrics",
+          "message": "Notification queue depth remained within its normal range.",
+          "details": {
+            "depth": 42,
+            "normal_maximum": 100,
+            "oldest_message_age_seconds": 12
+          }
+        }
+      ],
+      "deployments": []
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "notification_provider_outage",
+      "required_supporting_evidence_ids": ["LOG-011", "LOG-012"],
+      "acceptable_supporting_evidence_ids": ["LOG-011", "LOG-012", "LOG-013"],
+      "relevant_runbook_ids": ["RUN-003"],
+      "remediation_label": "restore_or_fail_over_notification_provider",
+      "prohibited_root_cause_labels": ["notification_worker_backlog"]
+    }
+  },
+  {
+    "id": "notification-worker-backlog",
+    "context": {
+      "incident": {
+        "id": "INC-007",
+        "title": "Notifications increasingly delayed",
+        "description": "Outbound messages remain queued well beyond the delivery target.",
+        "service": "notification-service",
+        "started_at": "2026-08-08T14:00:00Z"
+      },
+      "logs": [
+        {
+          "id": "LOG-014",
+          "timestamp": "2026-08-08T14:00:02Z",
+          "service": "notification-service",
+          "kind": "notification_queue_metrics",
+          "message": "The oldest queued notification is 1080 seconds old.",
+          "details": {
+            "depth": 4800,
+            "oldest_message_age_seconds": 1080,
+            "ingress_rate_per_minute": 300
+          }
+        },
+        {
+          "id": "LOG-015",
+          "timestamp": "2026-08-08T14:00:03Z",
+          "service": "notification-service",
+          "kind": "notification_worker_metrics",
+          "message": "Two of twelve delivery workers are processing messages.",
+          "details": {
+            "active_workers": 2,
+            "desired_workers": 12,
+            "processing_rate_per_minute": 40
+          }
+        },
+        {
+          "id": "LOG-016",
+          "timestamp": "2026-08-08T14:00:04Z",
+          "service": "notification-service",
+          "kind": "upstream_health_check",
+          "message": "Notification provider health check succeeded in 92 ms.",
+          "details": {
+            "provider": "mail-provider",
+            "status": "healthy",
+            "latency_ms": 92
+          }
+        }
+      ],
+      "deployments": []
+    },
+    "ground_truth": {
+      "expected_status": "diagnosed",
+      "root_cause_label": "notification_worker_backlog",
+      "required_supporting_evidence_ids": ["LOG-014", "LOG-015"],
+      "acceptable_supporting_evidence_ids": ["LOG-014", "LOG-015", "LOG-016"],
+      "relevant_runbook_ids": ["RUN-006"],
+      "remediation_label": "restore_notification_worker_capacity",
+      "prohibited_root_cause_labels": ["notification_provider_outage"]
+    }
+  }
+]

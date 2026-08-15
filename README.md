@@ -3,9 +3,10 @@
 ResolveAI is an AI incident investigation copilot built entirely with synthetic
 operational data. The current workflow investigates synthetic connection-pool
 and certificate-expiration incidents, reports when available evidence is
-insufficient, and retrieves related runbook knowledge from PostgreSQL. The fake
-model still diagnoses from evidence alone: retrieved similarity is neither
-causal evidence nor diagnosis confidence.
+insufficient, and retrieves related runbook knowledge from PostgreSQL. The API
+defaults to an evidence-only deterministic fake, while the frozen benchmark can
+also run one structured OpenAI reasoner. Retrieved similarity is neither causal
+evidence nor diagnosis confidence.
 
 ## Run locally
 
@@ -35,6 +36,72 @@ curl -X POST http://127.0.0.1:8000/incidents/INC-002/investigate
 curl -X POST http://127.0.0.1:8000/incidents/INC-003/investigate
 ```
 
+## Run the frontend locally
+
+The frontend uses pnpm 11.21.0, pinned in `web/package.json`. It expects the
+PostgreSQL prerequisites and FastAPI process above to be running at
+`http://127.0.0.1:8000`. In a second terminal:
+
+```bash
+cd web
+cp .env.local.example .env.local
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run dev
+```
+
+Open `http://localhost:3000`. The browser calls same-origin `/api` URLs and
+Next.js proxies them to the FastAPI base URL configured by
+`RESOLVEAI_API_URL`. Change that value in `web/.env.local` when the backend runs
+at a different location.
+
+## Phase 4 — Reviewer-facing investigation UI
+
+The UI gives a reviewer a direct way to understand an investigation without
+reading raw API responses. It deliberately visualizes only behavior that the
+current application exposes:
+
+```text
+FastAPI JSON
+        ↓
+Next.js dashboard
+        ↓
+incident selection
+        ↓
+synchronous investigation
+        ↓
+diagnosis / inconclusive
+        ↓
+Evidence + citations + reference knowledge
+```
+
+The single responsive App Router page uses local React state and native `fetch`.
+It shows only truthful request states—Ready, Investigating, Complete, and
+Failed—because FastAPI returns one final synchronous `InvestigationResult` and
+does not expose internal progress events.
+
+The presentation keeps all collected Evidence visible, highlights the subset
+cited by `Diagnosis.supporting_evidence_ids`, and displays RetrievedRunbooks in a
+separate reference-knowledge section. Human approval remains informational
+because ResolveAI currently recommends remediation but performs no mutating
+action. The Next.js rewrite connects the browser to FastAPI through the
+configurable `RESOLVEAI_API_URL`, so no FastAPI CORS change was needed.
+
+A manual local smoke test ran PostgreSQL, FastAPI, and Next.js together
+successfully. `INC-001` rendered the connection-pool diagnosis with cited
+Evidence, confidence, remediation, approval information, and separate runbooks;
+`INC-002` rendered the expired-client-certificate diagnosis and citation;
+`INC-003` rendered a successful inconclusive result with no invented Diagnosis
+while retaining Evidence and reference knowledge. The rewrite also preserved
+the existing FastAPI 404 response. This smoke test is not automated browser
+coverage.
+
+Phase 4 is complete because this flow satisfies the current reviewer need.
+Progress visualization, intermediate hypotheses, tool calls, and approval
+controls remain postponed until corresponding application capabilities exist:
+
+> UI capability should follow real application capability.
+
 ## How one investigation works
 
 The application is a single Python process. FastAPI does not perform the
@@ -57,7 +124,7 @@ investigation.py: investigate_incident()
                                             │
                    ┌────────────────────────┴───────────────────────┐
                    ▼                                                ▼
-        build_runbook_query()                         generate_hypothesis(evidence)
+        build_runbook_query()                         selected HypothesisGenerator
                    │                                                │
                    ▼                                     supported │ no rule
         semantic_search_runbooks()                       hypothesis │
@@ -124,10 +191,13 @@ The ordered results are `RetrievedRunbook` objects. They are operational
 reference material and remain separate from `Evidence`, which represents facts
 observed in this incident.
 
-### 5. The fake proposes a hypothesis
+### 5. The selected reasoner proposes a hypothesis
 
-`generate_hypothesis()` receives only the evidence list. It does not receive
-`INC-001`, so it cannot select a canned answer by incident ID.
+`investigate_incident()` accepts one small callable boundary: incident,
+`Evidence`, and `RetrievedRunbook` values enter; a structured `Hypothesis`
+returns. The API defaults to `generate_fake_hypothesis()`, whose adapter discards
+the incident and runbooks before calling the original evidence-only fake. The
+fake therefore still cannot select a canned answer by incident or runbook ID.
 
 The pool rule finds a connection timeout and the latest connection-pool setting
 change by comparing evidence timestamps. It produces a diagnosis only when that
@@ -135,16 +205,17 @@ latest change reduced the pool. An older reduction followed by a later
 restoration therefore cannot trigger a stale diagnosis. The scan does not sort
 or mutate the collected evidence list.
 
-When the rule matches, it returns a `Hypothesis` containing a probable cause,
-confidence, remediation, and the two evidence IDs it wants to cite.
+When a reasoner reaches a diagnosis, it returns a `Hypothesis` containing both a
+normalized root-cause label and a human-readable probable cause, plus confidence,
+remediation, and the evidence IDs it wants to cite.
 
 The hypothesis is still unverified. A future LLM could cite an identifier that
 does not exist, so model-shaped output is not used as the final response yet.
 
-If no rule matches, the fake raises `InsufficientEvidenceError`. The orchestrator
-treats this specific exception as an expected outcome and builds an inconclusive
-result. It does not catch unrelated exceptions, because those would indicate an
-unexpected application failure rather than uncertainty about the diagnosis.
+If no rule matches, the fake raises the shared `InsufficientEvidenceError`. The
+OpenAI reasoner raises the same exception when its structured decision is
+inconclusive. The orchestrator treats only this exception as an expected outcome;
+database, SDK, schema, and other unexpected failures remain system failures.
 
 ### 6. The application verifies citations
 
@@ -185,7 +256,9 @@ the JSON response received by the caller.
 | `resolve_ai/fixtures.py` | Where does Phase 1 operational data come from? |
 | `resolve_ai/models.py` | What shape does data have at each stage? |
 | `resolve_ai/investigation.py` | In what order do investigation steps run? |
+| `resolve_ai/reasoning.py` | What is the shared reasoner callable contract? |
 | `resolve_ai/fake_model.py` | How is evidence mapped to a testable hypothesis? |
+| `resolve_ai/openai_model.py` | How does one real model produce structured reasoning? |
 | `resolve_ai/embeddings.py` | How do runbook and query texts become vectors? |
 | `resolve_ai/retrieval.py` | How are runbooks ranked by PostgreSQL? |
 | `tests/test_investigation.py` | Does the domain logic behave correctly by itself? |
@@ -410,50 +483,136 @@ but it is too small to establish general retrieval quality.
 
 ## Expanded retrieval benchmark
 
-The original corpus was expanded without modifying its three runbooks or six
-cases. Each existing topic now has a realistic, confusable neighbor:
+The Phase 2 corpus introduced three confusable topic pairs: connection-pool
+exhaustion versus database locking, client-certificate expiration versus
+upstream server identity, and provider outage versus worker backlog. Phase 3
+then added three organization-specific knowledge documents and six frozen
+queries without changing the embedding model or either ranking implementation.
 
-- database connection-pool exhaustion versus blocked transactions;
-- client authentication certificates versus upstream TLS server certificates;
-- external notification-provider outages versus internal delivery-worker lag.
-
-The resulting benchmark contains six runbooks and twelve cases: six direct
-vocabulary queries and six paraphrased information needs. The new documents,
-queries, labels, embedding model, and ranking implementations were frozen before
-either evaluator was run.
-
-### Expanded benchmark results
+The current nine-runbook, eighteen-query benchmark measures:
 
 ```text
                          Direct    Paraphrased    Overall
-Lexical                    5/6         0/6          5/12
-Semantic                   6/6         5/6         11/12
+Lexical                    5/9         0/9          5/18
+Semantic                   9/9         7/9          16/18
 ```
 
-The complete rankings returned with `limit=3` were:
+On the six new knowledge-document queries, semantic retrieval achieved 5/6
+Top-1 and 6/6 Top-3 delivery. Lexical retrieval returned no result for those six
+queries. Semantic retrieval therefore remains the selected investigation
+strategy; the case-level evidence still does not justify hybrid retrieval.
 
-| Case | Expected | Lexical ranking | Semantic ranking |
-|---|---|---|---|
-| `pool-direct` | RUN-001 | RUN-001 | RUN-001, RUN-004, RUN-003 |
-| `pool-paraphrased` | RUN-001 | no results | RUN-004, RUN-001, RUN-003 |
-| `certificate-direct` | RUN-002 | RUN-002 | RUN-002, RUN-005, RUN-003 |
-| `certificate-paraphrased` | RUN-002 | no results | RUN-002, RUN-005, RUN-003 |
-| `provider-direct` | RUN-003 | RUN-003 | RUN-003, RUN-006, RUN-001 |
-| `provider-paraphrased` | RUN-003 | no results | RUN-003, RUN-005, RUN-001 |
-| `lock-direct` | RUN-004 | RUN-004 | RUN-004, RUN-001, RUN-005 |
-| `lock-paraphrased` | RUN-004 | no results | RUN-004, RUN-001, RUN-003 |
-| `upstream-tls-direct` | RUN-005 | no results | RUN-005, RUN-002, RUN-001 |
-| `upstream-tls-paraphrased` | RUN-005 | no results | RUN-005, RUN-002, RUN-001 |
-| `queue-backlog-direct` | RUN-006 | RUN-006 | RUN-006, RUN-003, RUN-004 |
-| `queue-backlog-paraphrased` | RUN-006 | no results | RUN-006, RUN-003, RUN-001 |
+## Phase 3 investigation evaluation
 
-Semantic retrieval had six unique Top-1 wins: `certificate-paraphrased`,
-`provider-paraphrased`, `lock-paraphrased`, `upstream-tls-direct`,
-`upstream-tls-paraphrased`, and `queue-backlog-paraphrased`. Lexical retrieval
-had no unique wins. Both strategies missed `pool-paraphrased`; semantic retrieval
-ranked its expected RUN-001 second behind the new RUN-004. Top-1 and the visible
-case rankings are sufficient to describe this result without adding another
-metric.
+Phase 3 contains two independently frozen slices:
+
+- `evals/investigation_cases.json`: the seven-case core benchmark;
+- `evals/investigation_retrieval_cases.json`: three retrieval-dependent cases.
+
+Use `--benchmark core`, `--benchmark retrieval-dependent`, or
+`--benchmark combined` to select the slice. Ground truth remains independent of
+the fake and Luna and includes normalized root causes, required and acceptable
+Evidence IDs, relevant runbooks, and remediation labels.
+
+### Evaluator semantics
+
+The initial deterministic metrics are status accuracy, normalized root-cause
+accuracy, citation precision, and citation recall. Case outcomes preserve these
+distinctions:
+
+- a wrong status or root cause is `incorrect_answer`;
+- real Evidence outside the acceptable set reduces citation precision and can
+  produce `correct_with_extraneous_evidence`;
+- an unavailable Evidence citation is an unsupported grounding failure;
+- retrieval, API, schema, and other execution failures are `system_failure`.
+
+Citation precision and recall apply only to correctly diagnosed root causes.
+Precision uses `acceptable_supporting_evidence_ids`; recall uses
+`required_supporting_evidence_ids`. Unsupported citation IDs remain visible even
+when the root cause is wrong, but the wrong diagnosis receives no citation score.
+
+### Baseline progression
+
+The evidence-only deterministic fake establishes the initial reasoning floor:
+
+```text
+Status accuracy:             3/7 (43%)
+Root-cause accuracy:         2/6 (33%)
+Evidence citation precision: 3/3 (100%)
+Evidence citation recall:    3/3 (100%)
+```
+
+The corrected citation denominator contains only the fake's two correct
+diagnoses. Its limited root-cause accuracy is measured behavior, not a failing
+regression test.
+
+GPT-5.6 Luna through OpenRouter then measured 7/7 status accuracy and 6/6
+root-cause accuracy on the core benchmark. Removing runbooks produced identical
+case outputs, showing that the core primarily measures reasoning over operational
+Evidence rather than knowledge augmentation.
+
+The resulting limitation justified a separate retrieval-dependent slice. Three
+paired repetitions per condition measured:
+
+| Metric | Luna + runbooks | Luna without runbooks |
+|---|---:|---:|
+| Status accuracy | 7/9 (78%) | 7/9 (78%) |
+| Root-cause accuracy | 7/9 (78%) | 4/9 (44%) |
+| Citation precision over correct diagnoses | 19/19 (100%) | 11/11 (100%) |
+| Citation recall over correct diagnoses | 14/14 (100%) | 8/8 (100%) |
+| Correct answers | 7/9 | 4/9 |
+| Incorrect answers/outcomes | 2/9 | 5/9 |
+| Unsupported citations | 0 | 0 |
+
+The clearest effect was `INC-010`: with runbooks Luna selected provider outage
+twice and became inconclusive once; without runbooks it selected the competing
+worker-backlog cause in all three repetitions. The organization-specific
+lifecycle knowledge removed that repeated wrong diagnosis. `INC-009` improved
+from 1/3 to 2/3 correct, while `INC-008` remained 3/3 in both conditions.
+
+The benchmark-scoped conclusion is:
+
+> Retrieved organization-specific knowledge demonstrated measurable
+> investigation value for GPT-5.6 Luna on the frozen retrieval-dependent
+> synthetic benchmark.
+
+This does not establish that retrieval always helps, that Top-3 is globally
+optimal, or that the result generalizes beyond these synthetic cases.
+
+### Run an investigation evaluation
+
+The real reasoner uses GPT-5.6 Luna through the Responses API with Pydantic
+Structured Outputs. It preserves a human-readable probable cause beside the
+normalized label and keeps retrieved knowledge separate from observed Evidence.
+
+For direct OpenAI access, place `OPENAI_API_KEY` in the ignored `.env` and use
+`--reasoner openai`. For OpenRouter, set `OPENROUTER_API_KEY` and use:
+
+```bash
+uv run python -m evals.evaluate_investigations \
+  --database-url postgresql://resolveai:resolveai@localhost:5432/resolveai \
+  --reasoner openrouter \
+  --benchmark retrieval-dependent \
+  --runbooks enabled
+```
+
+Changing only `--runbooks disabled` supplies an empty runbook sequence to the
+same reasoner boundary. There is no fallback, routing, prompt-management layer,
+LangChain, or LangGraph.
+
+### Known evaluation limitations
+
+- all ten incidents are synthetic;
+- only three cases test retrieval-dependent knowledge;
+- real-model behavior is nondeterministic;
+- `INC-009` and `INC-010` were not perfectly stable with retrieval;
+- `INC-008` did not demonstrate retrieval value;
+- retrieval utility was measured only with GPT-5.6 Luna;
+- no prompt optimization, model comparison, hybrid retrieval, reranking, or
+  query rewriting was performed.
+
+Phase 3 and Phase 4 are complete. Phase 5 — Observability is next and has not
+started.
 
 ## Verify
 
@@ -461,4 +620,15 @@ metric.
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
+```
+
+Verify the frontend with its pinned pnpm version:
+
+```bash
+cd web
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run lint
+pnpm run build
 ```

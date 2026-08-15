@@ -1,0 +1,42 @@
+"""Run the concrete OpenAI reasoning baseline through OpenRouter."""
+
+import os
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+from resolve_ai.models import Evidence, Hypothesis, Incident, RetrievedRunbook
+from resolve_ai.openai_model import generate_openai_hypothesis
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_REASONING_MODEL = "openai/gpt-5.6-luna"
+
+
+def generate_openrouter_hypothesis(
+    incident: Incident,
+    evidence: list[Evidence],
+    retrieved_runbooks: list[RetrievedRunbook],
+    *,
+    client: OpenAI | None = None,
+    model: str = OPENROUTER_REASONING_MODEL,
+) -> Hypothesis:
+    """Use OpenRouter transport with the existing structured Luna reasoner."""
+    if client is None:
+        load_dotenv()
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY must be set in .env")
+        openrouter_client = OpenAI(
+            base_url=OPENROUTER_BASE_URL,
+            api_key=api_key,
+        )
+    else:
+        openrouter_client = client
+
+    return generate_openai_hypothesis(
+        incident,
+        evidence,
+        retrieved_runbooks,
+        client=openrouter_client,
+        model=model,
+    )

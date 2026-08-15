@@ -32,7 +32,14 @@ class EvidenceKind(StrEnum):
     """Identify the operational fact represented by an evidence item."""
 
     DATABASE_CONNECTION_TIMEOUT = "database_connection_timeout"
+    DATABASE_LOCK_WAIT = "database_lock_wait"
+    DATABASE_TRANSACTION_STATE = "database_transaction_state"
     AUTHENTICATION_CERTIFICATE_EXPIRED = "authentication_certificate_expired"
+    TLS_HANDSHAKE_VALIDATION_FAILED = "tls_handshake_validation_failed"
+    UPSTREAM_REQUEST_FAILED = "upstream_request_failed"
+    UPSTREAM_HEALTH_CHECK = "upstream_health_check"
+    NOTIFICATION_QUEUE_METRICS = "notification_queue_metrics"
+    NOTIFICATION_WORKER_METRICS = "notification_worker_metrics"
     HTTP_REQUEST_FAILED = "http_request_failed"
     CONFIGURATION_CHANGE = "configuration_change"
 
@@ -42,6 +49,17 @@ class InvestigationStatus(StrEnum):
 
     DIAGNOSED = "diagnosed"
     INCONCLUSIVE = "inconclusive"
+
+
+class RootCauseLabel(StrEnum):
+    """Name the normalized incident causes used by deterministic evaluation."""
+
+    CONNECTION_POOL_EXHAUSTION = "connection_pool_exhaustion"
+    EXPIRED_CLIENT_CERTIFICATE = "expired_client_certificate"
+    DATABASE_LOCK_CONTENTION = "database_lock_contention"
+    UPSTREAM_TLS_IDENTITY_MISMATCH = "upstream_tls_identity_mismatch"
+    NOTIFICATION_PROVIDER_OUTAGE = "notification_provider_outage"
+    NOTIFICATION_WORKER_BACKLOG = "notification_worker_backlog"
 
 
 class Incident(BaseModel):
@@ -134,6 +152,7 @@ class Hypothesis(BaseModel):
     not checked that those IDs refer to evidence it actually collected.
     """
 
+    root_cause_label: RootCauseLabel
     probable_root_cause: str
     cited_evidence_ids: list[str] = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
@@ -149,6 +168,7 @@ class Diagnosis(BaseModel):
     output with citation IDs.
     """
 
+    root_cause_label: RootCauseLabel
     probable_root_cause: str
     confidence: float = Field(ge=0, le=1)
     recommended_remediation: str

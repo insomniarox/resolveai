@@ -61,6 +61,7 @@ def test_investigate_incident_returns_structured_result() -> None:
     body = response.json()
     assert body["incident_id"] == "INC-001"
     assert body["status"] == "diagnosed"
+    assert body["diagnosis"]["root_cause_label"] == "connection_pool_exhaustion"
     assert body["diagnosis"]["confidence"] == 0.9
     assert body["diagnosis"]["human_approval_required"] is True
     assert body["diagnosis"]["supporting_evidence_ids"] == [

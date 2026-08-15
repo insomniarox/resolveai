@@ -21,6 +21,7 @@ from resolve_ai.models import (
     Hypothesis,
     InvestigationStatus,
     RetrievedRunbook,
+    RootCauseLabel,
 )
 
 
@@ -181,6 +182,58 @@ def test_changing_retrieved_candidates_does_not_change_diagnosis(monkeypatch) ->
     assert [item.id for item in second_result.retrieved_runbooks] == ["RUN-004"]
 
 
+def test_investigation_passes_incident_evidence_and_runbooks_to_reasoner(
+    monkeypatch,
+) -> None:
+    context = get_incident_context("INC-001")
+    assert context is not None
+    runbooks = [_retrieved_runbook("RUN-001", 0.9)]
+    received: dict = {}
+
+    monkeypatch.setattr(
+        "resolve_ai.investigation.semantic_search_runbooks",
+        lambda database_url, query, limit: runbooks,
+    )
+
+    def reasoner(incident, evidence, retrieved_runbooks):
+        received.update(
+            incident=incident,
+            evidence=evidence,
+            retrieved_runbooks=retrieved_runbooks,
+        )
+        return Hypothesis(
+            root_cause_label=RootCauseLabel.CONNECTION_POOL_EXHAUSTION,
+            probable_root_cause="The observed pool reduction caused timeouts.",
+            cited_evidence_ids=[
+                "DEP-001:database_connection_pool_size",
+                "LOG-001",
+            ],
+            confidence=0.8,
+            recommended_remediation="Restore the previous pool size.",
+        )
+
+    result = investigate_incident(
+        context,
+        database_url="postgresql://test",
+        hypothesis_generator=reasoner,
+    )
+
+    assert received["incident"] == context.incident
+    assert [item.id for item in received["evidence"]] == [
+        "LOG-001",
+        "LOG-002",
+        "DEP-001:database_connection_pool_size",
+    ]
+    assert received["retrieved_runbooks"] == runbooks
+    assert result.diagnosis is not None
+    assert (
+        result.diagnosis.root_cause_label == RootCauseLabel.CONNECTION_POOL_EXHAUSTION
+    )
+    assert result.diagnosis.probable_root_cause == (
+        "The observed pool reduction caused timeouts."
+    )
+
+
 def test_retrieval_failure_is_not_mislabeled_as_inconclusive(monkeypatch) -> None:
     context = get_incident_context("INC-003")
     assert context is not None
@@ -339,6 +392,7 @@ def test_verification_rejects_a_citation_that_does_not_exist() -> None:
     assert context is not None
     evidence = inspect_logs(context) + inspect_deployments(context)
     hypothesis = Hypothesis(
+        root_cause_label=RootCauseLabel.CONNECTION_POOL_EXHAUSTION,
         probable_root_cause="An unverified cause.",
         cited_evidence_ids=["EVIDENCE-DOES-NOT-EXIST"],
         confidence=0.5,
@@ -354,6 +408,7 @@ def test_verification_copies_ordered_lists_into_the_domain_result() -> None:
     assert context is not None
     evidence = inspect_logs(context) + inspect_deployments(context)
     hypothesis = Hypothesis(
+        root_cause_label=RootCauseLabel.CONNECTION_POOL_EXHAUSTION,
         probable_root_cause="A test cause.",
         cited_evidence_ids=[
             "DEP-001:database_connection_pool_size",

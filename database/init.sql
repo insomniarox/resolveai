@@ -86,6 +86,41 @@ VALUES
         'oldest-message age, worker health, and processing rate while confirming '
         'the external provider remains responsive. Restore worker capacity or '
         'correct the consumer bottleneck before retrying queued messages.'
+    ),
+    (
+        'RUN-007',
+        'Payment database client profiles and admission telemetry',
+        'payment-service',
+        'Payment database client profile 4 provides 20 reusable sessions for '
+        'interactive checkout traffic. Profile 7 provides 5 reusable sessions '
+        'and is intended for low-concurrency settlement jobs. Admission state '
+        'amber means every configured reusable session is assigned while callers '
+        'wait. Admission failures happen before SQL dispatch, so the primary '
+        'database can remain healthy while callers cannot obtain a session.'
+    ),
+    (
+        'RUN-008',
+        'Tax connector route profiles and certificate inventory',
+        'payment-service',
+        'Tax connector profile 41 targets api.tax-partner.example and sends '
+        'api.tax-partner.example as SNI. Profile 42 targets tax-gateway.internal '
+        'and sends tax-gateway.internal as SNI. Both profiles reference trusted '
+        'certificate bundle TAX-2026, which remains valid through December 2026. '
+        'The bundle DNS identities contain api.tax-partner.example but do not '
+        'contain tax-gateway.internal. Connector profiles do not modify the trust '
+        'store.'
+    ),
+    (
+        'RUN-009',
+        'Notification delivery lifecycle and probe coverage',
+        'notification-service',
+        'Notification state S1 means ready for a delivery worker. After a worker '
+        'dequeues a notification and the provider returns 202 Accepted, it enters '
+        'S4. Only the provider delivery-receipt callback moves an item out of S4; '
+        'delivery workers no longer own items in that state. Worker throughput '
+        'measures dequeue and submission, not delivery-receipt completion. The '
+        'provider gateway health check tests message admission only and does not '
+        'test post-acceptance delivery or receipt callbacks.'
     )
 ON CONFLICT (id) DO UPDATE
 SET
