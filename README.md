@@ -1,12 +1,13 @@
 # ResolveAI
 
 ResolveAI is an AI incident investigation copilot built entirely with synthetic
-operational data. The current workflow investigates synthetic connection-pool
+operational data. The reviewer-facing API investigates synthetic connection-pool
 and certificate-expiration incidents, reports when available evidence is
 insufficient, and retrieves related runbook knowledge from PostgreSQL. The API
 defaults to an evidence-only deterministic fake, while the frozen benchmark can
-also run one structured OpenAI reasoner. Retrieved similarity is neither causal
-evidence nor diagnosis confidence.
+run the structured GPT-5.6 Luna reasoner through direct OpenAI or OpenRouter
+access. Retrieved similarity is neither causal evidence nor diagnosis
+confidence.
 
 ## Run locally
 
@@ -36,10 +37,87 @@ curl -X POST http://127.0.0.1:8000/incidents/INC-002/investigate
 curl -X POST http://127.0.0.1:8000/incidents/INC-003/investigate
 ```
 
+### Enable local console traces
+
+Tracing is disabled by default. To export one investigation trace to the
+FastAPI process's console, start the backend with the explicit opt-in flag:
+
+```bash
+RESOLVEAI_TRACE_CONSOLE=1 \
+DATABASE_URL=postgresql://resolveai:resolveai@localhost:5432/resolveai \
+  uv run uvicorn resolve_ai.api:app --reload
+```
+
+Each completed investigation prints an `investigation` span with
+`retrieve_runbooks` and `generate_hypothesis` children. `retrieve_runbooks`
+contains `generate_query_embedding` and `query_runbooks`; diagnosed results also
+include `verify_citations`. The output contains trace and parent IDs, start/end
+times, operational attributes, and standard exception details for genuine
+failures. Export is batched and queued spans flush during normal process
+shutdown.
+
+## Run the application with Docker
+
+Phase 6.1 packages FastAPI and Next.js as separate runtimes beside PostgreSQL.
+Build both application images and start the complete local topology:
+
+```bash
+docker compose build api web
+docker compose up -d database api web
+```
+
+Open `http://127.0.0.1:3000`. The browser reaches the published frontend port;
+Next.js handles same-origin `/api` requests and forwards them to FastAPI over the
+Compose network.
+
+On a fresh PostgreSQL volume, `database/init.sql` creates the schema and corpus
+automatically. Embedding generation remains an explicit setup operation rather
+than an API startup side effect or a separate Compose service:
+
+```bash
+docker compose exec api python -m resolve_ai.populate_runbook_embeddings \
+  --database-url postgresql://resolveai:resolveai@database:5432/resolveai
+```
+
+The API uses the repository root as its build context. The root `.dockerignore`
+keeps local virtual environments, caches, secrets, and generated frontend files
+out of that context. The root `Dockerfile` installs locked Python production
+dependencies, copies `resolve_ai/`, and starts Uvicorn on container port 8000.
+
+The frontend uses `web/` as a separate build context because all of its build
+inputs live there. Docker therefore applies `web/.dockerignore`, not the root
+ignore file. The frontend Dockerfile activates the pnpm version pinned in
+`package.json`, installs the lockfile exactly, runs `next build`, and starts the
+production server with `next start` on container port 3000.
+
+The API receives its database URL through the Compose `environment` setting. A
+host process uses `localhost:5432` to reach PostgreSQL's published port, while
+the API container uses `database:5432`: Compose makes the service name
+`database` resolvable on its private default network.
+
+The frontend rewrite similarly uses `http://api:8000`, where `api` is the
+FastAPI service's Compose DNS name. `RESOLVEAI_API_URL` is evaluated by
+`next.config.ts` during `next build`, and the resolved destination is written to
+the production route manifest. Compose therefore supplies the internal address
+as a build argument. The same value is supplied when the container starts
+because Next.js loads its config then too, but changing only the startup value
+does not replace the already-built rewrite; a different backend destination
+requires rebuilding the frontend image. Requests use the built route and do not
+read this environment variable individually.
+
+`depends_on` starts the database container before the API container, but it does
+not wait for PostgreSQL readiness. No wait script is required because importing
+the FastAPI application and starting Uvicorn do not open a database connection.
+The investigation endpoint reads `DATABASE_URL` and connects only when an
+investigation request reaches retrieval. The production Next.js process also
+starts without contacting FastAPI, so the `web` dependency expresses startup
+ordering without adding a readiness script.
+
 ## Run the frontend locally
 
 The frontend uses pnpm 11.21.0, pinned in `web/package.json`. It expects the
-PostgreSQL prerequisites and FastAPI process above to be running at
+PostgreSQL prerequisites and either the host-run or containerized FastAPI
+process above to be reachable at
 `http://127.0.0.1:8000`. In a second terminal:
 
 ```bash
@@ -55,89 +133,55 @@ Next.js proxies them to the FastAPI base URL configured by
 `RESOLVEAI_API_URL`. Change that value in `web/.env.local` when the backend runs
 at a different location.
 
-## Phase 4 — Reviewer-facing investigation UI
-
-The UI gives a reviewer a direct way to understand an investigation without
-reading raw API responses. It deliberately visualizes only behavior that the
-current application exposes:
-
-```text
-FastAPI JSON
-        ↓
-Next.js dashboard
-        ↓
-incident selection
-        ↓
-synchronous investigation
-        ↓
-diagnosis / inconclusive
-        ↓
-Evidence + citations + reference knowledge
-```
-
-The single responsive App Router page uses local React state and native `fetch`.
-It shows only truthful request states—Ready, Investigating, Complete, and
-Failed—because FastAPI returns one final synchronous `InvestigationResult` and
-does not expose internal progress events.
-
-The presentation keeps all collected Evidence visible, highlights the subset
-cited by `Diagnosis.supporting_evidence_ids`, and displays RetrievedRunbooks in a
-separate reference-knowledge section. Human approval remains informational
-because ResolveAI currently recommends remediation but performs no mutating
-action. The Next.js rewrite connects the browser to FastAPI through the
-configurable `RESOLVEAI_API_URL`, so no FastAPI CORS change was needed.
-
-A manual local smoke test ran PostgreSQL, FastAPI, and Next.js together
-successfully. `INC-001` rendered the connection-pool diagnosis with cited
-Evidence, confidence, remediation, approval information, and separate runbooks;
-`INC-002` rendered the expired-client-certificate diagnosis and citation;
-`INC-003` rendered a successful inconclusive result with no invented Diagnosis
-while retaining Evidence and reference knowledge. The rewrite also preserved
-the existing FastAPI 404 response. This smoke test is not automated browser
-coverage.
-
-Phase 4 is complete because this flow satisfies the current reviewer need.
-Progress visualization, intermediate hypotheses, tool calls, and approval
-controls remain postponed until corresponding application capabilities exist:
-
-> UI capability should follow real application capability.
-
 ## How one investigation works
 
-The application is a single Python process. FastAPI does not perform the
-investigation itself; it exposes an ordinary Python workflow through HTTP.
+The backend investigation runs in a single Python process. FastAPI does not
+perform the investigation itself; it exposes an ordinary Python workflow through
+HTTP. The route and every current investigation operation are synchronous. There
+are no background jobs, workflow events, or concurrent investigation stages.
+
+### Current synchronous execution path
+
+| Boundary | Current function | Behavior and failure boundary |
+|---|---|---|
+| HTTP request | `investigate_incident_endpoint()` in `resolve_ai/api.py` | Loads the requested context, requires `DATABASE_URL`, and returns the existing 404 for an unknown incident. Unexpected workflow failures propagate to FastAPI. |
+| Incident/context loading | `get_incident_context()` in `resolve_ai/fixtures.py` | Copies an in-memory synthetic `IncidentContext`; it has no external dependency. |
+| Evidence collection | `inspect_logs()` and `inspect_deployments()` in `resolve_ai/investigation.py` | Select and normalize fixture records into ordered `Evidence` values using pure Python. |
+| Retrieval-query construction | `build_runbook_query()` in `resolve_ai/investigation.py` | Deterministically combines incident context and Evidence summaries. |
+| Semantic retrieval | `semantic_search_runbooks()` in `resolve_ai/retrieval.py` | Generates one query embedding, performs a synchronous PostgreSQL/pgvector Top-3 search, and returns ordered `RetrievedRunbook` values. Embedding, database, SQL, and result-validation errors propagate. |
+| Hypothesis generation | Selected `HypothesisGenerator` | Runs the local deterministic fake by default or a synchronous remote model call in an evaluator/manual path. Only `InsufficientEvidenceError` represents a normal inconclusive outcome. |
+| Inconclusive handling | `_build_inconclusive_result()` in `resolve_ai/investigation.py` | Returns the collected Evidence and retrieved reference knowledge with `diagnosis: null`. |
+| Citation verification | `verify_hypothesis()` in `resolve_ai/investigation.py` | Rejects cited IDs that are not present in collected Evidence, then constructs the diagnosed result. |
+| HTTP response | FastAPI with `InvestigationResult` | Validates and serializes the final diagnosed or inconclusive result as JSON. |
+
+The external operations whose duration or failure can vary materially are
+semantic retrieval and, when selected outside the default API path, remote
+hypothesis generation. Evidence collection, query construction, citation
+verification, and result construction are currently small in-process
+operations. Citation verification remains a meaningful correctness boundary
+even though its duration is negligible.
+
+### Effective flow
 
 ```text
-POST /incidents/INC-001/investigate
-                │
-                ▼
-api.py: investigate_incident_endpoint()
-                │ loads synthetic data
-                ▼
-fixtures.py: get_incident_context()
-                │ returns IncidentContext
-                ▼
-investigation.py: investigate_incident()
-                │
-                ├── inspect_logs() ─────────┐
-                └── inspect_deployments() ──┤ produce Evidence objects
-                                            │
-                   ┌────────────────────────┴───────────────────────┐
-                   ▼                                                ▼
-        build_runbook_query()                         selected HypothesisGenerator
-                   │                                                │
-                   ▼                                     supported │ no rule
-        semantic_search_runbooks()                       hypothesis │
-                   │                                                │
-                   ▼                                                ▼
-        ordered RetrievedRunbooks                 diagnosed or inconclusive
-                   │                                                │
-                   └────────────────────────┬───────────────────────┘
-                                            ▼
-                                 InvestigationResult
-                │ FastAPI serializes it
-                ▼
-             JSON response
+POST /incidents/{incident_id}/investigate
+→ load IncidentContext from synthetic fixtures
+→ read DATABASE_URL
+→ investigate_incident()
+   → inspect logs and deployments
+   → collect ordered Evidence
+   → build deterministic retrieval query
+   → generate query embedding
+   → query PostgreSQL/pgvector for semantic Top-3
+   → collect ordered RetrievedRunbooks
+   → call selected HypothesisGenerator
+      ├── InsufficientEvidenceError
+      │   → build inconclusive InvestigationResult
+      └── Hypothesis
+          → verify cited Evidence IDs
+          → build diagnosed InvestigationResult
+→ FastAPI validates and serializes the result
+→ JSON response
 ```
 
 ### 1. The API receives an incident ID
@@ -259,6 +303,7 @@ the JSON response received by the caller.
 | `resolve_ai/reasoning.py` | What is the shared reasoner callable contract? |
 | `resolve_ai/fake_model.py` | How is evidence mapped to a testable hypothesis? |
 | `resolve_ai/openai_model.py` | How does one real model produce structured reasoning? |
+| `resolve_ai/openrouter_model.py` | How is the same model reached through OpenRouter? |
 | `resolve_ai/embeddings.py` | How do runbook and query texts become vectors? |
 | `resolve_ai/retrieval.py` | How are runbooks ranked by PostgreSQL? |
 | `tests/test_investigation.py` | Does the domain logic behave correctly by itself? |
@@ -266,7 +311,8 @@ the JSON response received by the caller.
 
 ## Deliberate Phase 1 limitations
 
-- Data is held in Python fixtures rather than a database.
+- Incident, log, and deployment data are held in Python fixtures rather than an
+  operational data store.
 - The fake supports only two explicit evidence patterns.
 - Evidence outside those patterns produces a structured inconclusive result.
 - Confidence values are illustrative, not statistically calibrated.
@@ -281,8 +327,9 @@ workflow does not call it.
 
 ### Start PostgreSQL locally
 
-The Compose file runs only the PostgreSQL dependency. It does not containerize
-the FastAPI application and is not Phase 6 application packaging.
+Compose still allows PostgreSQL to be started by itself for host-based backend
+development. The separate `api` service is the first Phase 6.1 application
+container; it is not required for the retrieval examples in this section.
 
 ```bash
 docker compose up -d database
@@ -375,8 +422,9 @@ retrieve differently worded queries.
 
 Semantic retrieval is a second concrete operation beside lexical retrieval. It
 does not replace `search_runbooks()`. The investigation workflow now uses this
-operation to attach related knowledge to its result, while diagnosis remains
-evidence-only.
+operation to attach related knowledge to its result. The default deterministic
+fake remains evidence-only, while model-backed reasoners receive the retrieved
+runbooks through the shared `HypothesisGenerator` boundary.
 
 Each complete runbook remains one row and one retrieval chunk. FastEmbed's fixed
 `BAAI/bge-small-en-v1.5` model converts this stable representation into a
@@ -611,8 +659,117 @@ LangChain, or LangGraph.
 - no prompt optimization, model comparison, hybrid retrieval, reranking, or
   query rewriting was performed.
 
-Phase 3 and Phase 4 are complete. Phase 5 — Observability is next and has not
-started.
+## Phase 4 — Reviewer-facing investigation UI
+
+The UI gives a reviewer a direct way to understand an investigation without
+reading raw API responses. It deliberately visualizes only behavior that the
+current application exposes:
+
+```text
+FastAPI JSON
+        ↓
+Next.js dashboard
+        ↓
+incident selection
+        ↓
+synchronous investigation
+        ↓
+diagnosis / inconclusive
+        ↓
+Evidence + citations + reference knowledge
+```
+
+The single responsive App Router page uses local React state and native `fetch`.
+It shows only truthful request states—Ready, Investigating, Complete, and
+Failed—because FastAPI returns one final synchronous `InvestigationResult` and
+does not expose internal progress events.
+
+The presentation keeps all collected Evidence visible, highlights the subset
+cited by `Diagnosis.supporting_evidence_ids`, and displays RetrievedRunbooks in a
+separate reference-knowledge section. Human approval remains informational
+because ResolveAI currently recommends remediation but performs no mutating
+action. The Next.js rewrite connects the browser to FastAPI through the
+configurable `RESOLVEAI_API_URL`, so no FastAPI CORS change was needed.
+
+A manual local smoke test ran PostgreSQL, FastAPI, and Next.js together
+successfully. `INC-001` rendered the connection-pool diagnosis with cited
+Evidence, confidence, remediation, approval information, and separate runbooks;
+`INC-002` rendered the expired-client-certificate diagnosis and citation;
+`INC-003` rendered a successful inconclusive result with no invented Diagnosis
+while retaining Evidence and reference knowledge. The rewrite also preserved
+the existing FastAPI 404 response. This smoke test is not automated browser
+coverage.
+
+Phase 4 is complete because this flow satisfies the current reviewer need.
+Progress visualization, intermediate hypotheses, tool calls, and approval
+controls remain postponed until corresponding application capabilities exist:
+
+> UI capability should follow real application capability.
+
+## Phase 5 — Observability
+
+Phase 5 used observability to answer where a synchronous investigation spent
+time or failed. The final trace hierarchy emerged from measurements rather than
+being designed upfront:
+
+```text
+investigation
+├── retrieve_runbooks
+│   ├── generate_query_embedding
+│   └── query_runbooks
+├── generate_hypothesis
+└── verify_citations       # diagnosed path only
+```
+
+The engineering progression was:
+
+```text
+request/result only
+        ↓
+manual investigation tracing
+        ↓
+retrieval dominated fake-path latency
+        ↓
+embedding/database decomposition
+        ↓
+first-call embedding spike localized
+        ↓
+no optimization justified by current warm latency
+```
+
+Phase 5.1 measured retrieval at 244.482 ms of a 244.789 ms diagnosed
+investigation, while another retrieval measured 19.092 ms. Retrieval therefore
+dominated the deterministic-fake path, varied substantially, and was too coarse
+to identify the source of that variation.
+
+Phase 5.2 measured five sequential same-process investigations. The first query
+embedding took 152.787 ms; the next four took approximately 4–8 ms. This pattern
+is consistent with one-time or warm-up work in the embedding path, but the trace
+does not establish the internal mechanism. Warm PostgreSQL/pgvector work measured
+approximately 10–18 ms and was the largest remaining retrieval component. That
+duration is not itself evidence of a performance problem, so no optimization was
+introduced.
+
+The deterministic fake's reasoning and citation spans were negligible. Those
+reasoning measurements do not represent GPT-5.6 Luna or remote-provider
+latency. Citation verification remains useful because it can fail independently,
+not because its duration is significant.
+
+Diagnosed and inconclusive results remain successful traces; inconclusive has no
+citation span. Genuine retrieval failures mark `query_runbooks`,
+`retrieve_runbooks`, and `investigation` as errors while preserving the original
+exception.
+
+No finer span decomposition, HTTP or dependency auto-instrumentation, OTLP,
+Collector, metrics, Prometheus, or Grafana was justified. ResolveAI has no
+sustained workload, SLO, retained telemetry backend, or recurring dashboard
+question requiring those additions.
+
+> Span granularity should increase only when an existing span becomes too coarse
+> to answer a demonstrated operational question.
+
+Phase 3, Phase 4, Phase 5, and Phase 6.1 are complete. Phase 6.2 — CI is next
+and has not started.
 
 ## Verify
 
@@ -631,4 +788,13 @@ pnpm install --frozen-lockfile
 pnpm run typecheck
 pnpm run lint
 pnpm run build
+```
+
+Verify the complete local container packaging from the repository root:
+
+```bash
+docker compose config --quiet
+docker compose build api web
+docker compose up -d database api web
+curl http://127.0.0.1:3000/api/incidents
 ```

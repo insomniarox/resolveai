@@ -17,16 +17,20 @@ because only this concrete implementation exists today.
 import math
 
 import psycopg
+from opentelemetry import trace
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from resolve_ai.embeddings import (
     EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODEL_NAME,
     build_runbook_embedding_text,
     generate_document_embeddings,
     generate_query_embedding,
 )
 from resolve_ai.models import RetrievedRunbook
+
+tracer = trace.get_tracer(__name__)
 
 
 class RunbookSearchResult(BaseModel):
@@ -146,16 +150,32 @@ def semantic_search_runbooks(
     """
     _validate_search_inputs(database_url, query, limit)
 
-    query_embedding = generate_query_embedding(query)
+    with tracer.start_as_current_span(
+        "generate_query_embedding",
+        attributes={"resolveai.embedding.model": EMBEDDING_MODEL_NAME},
+    ) as embedding_span:
+        query_embedding = generate_query_embedding(query)
+        embedding_span.set_attribute(
+            "resolveai.embedding.vector_dimensions",
+            len(query_embedding),
+        )
+
     query_vector_parameter = _format_vector_for_postgres(query_embedding)
 
-    with psycopg.connect(database_url, row_factory=dict_row) as connection:
-        rows = connection.execute(
-            _SEARCH_RUNBOOKS_SEMANTIC_SQL,
-            (query_vector_parameter, limit),
-        ).fetchall()
+    with tracer.start_as_current_span("query_runbooks") as query_span:
+        with psycopg.connect(database_url, row_factory=dict_row) as connection:
+            rows = connection.execute(
+                _SEARCH_RUNBOOKS_SEMANTIC_SQL,
+                (query_vector_parameter, limit),
+            ).fetchall()
 
-    return [RetrievedRunbook.model_validate(row) for row in rows]
+        results = [RetrievedRunbook.model_validate(row) for row in rows]
+        query_span.set_attribute(
+            "resolveai.retrieval.result_count",
+            len(results),
+        )
+
+    return results
 
 
 def populate_runbook_embeddings(database_url: str) -> int:

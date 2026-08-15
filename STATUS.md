@@ -4,7 +4,17 @@
 
 Phase 4 — User Interface is complete.
 
-Phase 5 — Observability is the current/next phase. Phase 5 has not started.
+Phase 5 — Observability is complete.
+
+Phase 5.1 manual tracing is complete.
+
+Phase 5.2 retrieval trace decomposition is complete.
+
+Phase 6 — Productionization is the current phase.
+
+Phase 6.1 — Docker is complete.
+
+Phase 6.2 — CI is next and has not started.
 
 ## Completed phases
 
@@ -339,34 +349,332 @@ mutating action exists.
 
 Phase 4 exit status: complete.
 
+## Phase 5 — Observability
+
+Phase 5 grew from observed visibility gaps rather than an upfront technology
+stack or fixed span design:
+
+```text
+multi-step investigation
+→ insufficient request/result visibility
+→ manual OpenTelemetry tracing
+→ retrieval observed as dominant fake-path latency
+→ retrieval span found too coarse
+→ embedding/database decomposition
+→ bottleneck localized
+```
+
+### Phase 5.1 — Manual investigation tracing
+
+The first observability milestone answers one concrete operational question:
+
+> When an investigation is slow or fails, was the time or failure in semantic
+> retrieval, hypothesis generation, or citation verification?
+
+ResolveAI now creates one opt-in OpenTelemetry trace around the existing
+synchronous domain workflow:
+
+```text
+investigation
+├── retrieve_runbooks
+├── generate_hypothesis
+└── verify_citations       # diagnosed path only
+```
+
+`RESOLVEAI_TRACE_CONSOLE=1` configures a batched console exporter with
+`service.name = resolveai`. Without that flag, no SDK provider or exporter is
+configured and ordinary execution remains quiet. Instrumentation uses explicit
+application spans; no automatic FastAPI, psycopg, or model instrumentation was
+added.
+
+The trace semantics preserve the application semantics:
+
+- diagnosed and inconclusive results are successful executions with an unset
+  OpenTelemetry status and an explicit domain outcome attribute;
+- `InsufficientEvidenceError` is handled inside the reasoning span and does not
+  become an error;
+- retrieval, reasoning, and citation exceptions escape normally and mark the
+  active operation and root investigation spans as errors;
+- attributes contain identifiers, categorical values, and counts rather than
+  incident descriptions, Evidence content, runbook content, prompts, vectors,
+  database URLs, or secrets.
+
+### First local trace measurements
+
+The manual smoke test used the deterministic fake with the existing local
+PostgreSQL corpus. These are observations from two individual local requests,
+not benchmarks or performance guarantees:
+
+| Incident and outcome | investigation | retrieve_runbooks | generate_hypothesis | verify_citations |
+|---|---:|---:|---:|---:|
+| `INC-001` diagnosed | 244.789 ms | 244.482 ms | 0.040 ms | 0.008 ms |
+| `INC-003` inconclusive | 19.245 ms | 19.092 ms | 0.024 ms | not executed |
+
+The fake-reasoner measurements describe only local deterministic Python rules;
+they do not represent GPT-5.6 Luna or provider latency. A separate safe smoke
+test pointed retrieval at a closed local PostgreSQL port. The request returned
+HTTP 500, and both `retrieve_runbooks` and `investigation` were exported with
+`ERROR` status without modifying the real database.
+
+These measurements established that semantic retrieval dominated the
+deterministic-fake path and varied substantially between the two requests. The
+original span could not reveal whether embedding or PostgreSQL work caused that
+variation. That specific limitation justified Phase 5.2.
+
+Phase 5.1 exit status: complete.
+
+### Phase 5.2 — Retrieval trace decomposition
+
+Phase 5.1 showed that `retrieve_runbooks` dominated the deterministic-fake API
+path but combined query embedding with PostgreSQL/pgvector search. Phase 5.2
+adds only the two child spans needed to distinguish those operations:
+
+```text
+retrieve_runbooks
+├── generate_query_embedding
+└── query_runbooks
+```
+
+`generate_query_embedding` covers the existing FastEmbed query operation and
+records the fixed model and returned vector dimensions. `query_runbooks` covers
+PostgreSQL connection, pgvector SQL execution, row fetching, and
+`RetrievedRunbook` validation. Retrieval exceptions continue to propagate and
+mark the active child, `retrieve_runbooks`, and `investigation` as errors.
+
+Five sequential `INC-001` investigations were measured in one local FastAPI
+process with console tracing enabled and the deterministic fake reasoner:
+
+| Run | investigation | retrieve_runbooks | generate_query_embedding | query_runbooks | generate_hypothesis | verify_citations |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 170.652 ms | 170.444 ms | 152.787 ms | 17.367 ms | 0.038 ms | 0.006 ms |
+| 2 | 21.411 ms | 21.230 ms | 7.569 ms | 13.384 ms | 0.031 ms | 0.005 ms |
+| 3 | 15.692 ms | 15.532 ms | 4.557 ms | 10.698 ms | 0.025 ms | 0.005 ms |
+| 4 | 18.710 ms | 18.540 ms | 4.390 ms | 13.879 ms | 0.028 ms | 0.005 ms |
+| 5 | 22.636 ms | 22.465 ms | 4.381 ms | 17.808 ms | 0.025 ms | 0.004 ms |
+
+The first request spent 152.787 ms inside query embedding. Subsequent same-process
+calls spent approximately 4–8 ms. The observed pattern is consistent with
+one-time or warm-up work in the embedding path, but these spans do not establish
+whether model loading, caching, initialization, or another mechanism caused it.
+
+After the first request, PostgreSQL/pgvector work measured approximately 10–18
+ms and accounted for most semantic-retrieval time. PostgreSQL/pgvector is the
+largest measured component of warm semantic retrieval, but the observed
+duration is not itself evidence of a performance problem. No optimization is
+justified by these measurements.
+
+On this deterministic-fake path, `generate_hypothesis` measured approximately
+0.025–0.038 ms and `verify_citations` measured approximately 0.004–0.006 ms.
+Neither contributes materially to observed latency. Citation verification
+remains a useful failure boundary rather than a performance boundary. Fake
+reasoner latency is not representative of GPT-5.6 Luna or remote-provider
+latency, and no live model call was needed to close Phase 5.
+
+### Outcome and failure semantics
+
+The focused in-memory trace test and local smoke tests verified:
+
+```text
+diagnosed
+→ successful trace
+```
+
+```text
+inconclusive
+→ successful trace
+→ reasoning outcome = inconclusive
+→ no citation span
+```
+
+```text
+retrieval/database failure
+→ query_runbooks ERROR
+→ retrieve_runbooks ERROR
+→ investigation ERROR
+→ original exception propagates
+```
+
+The genuine failure path was exercised safely by pointing one local process at a
+closed PostgreSQL port. It returned HTTP 500 and exported the expected error
+spans without modifying the real database.
+
+### Why instrumentation stops here
+
+The final trace hierarchy is:
+
+```text
+investigation
+├── retrieve_runbooks
+│   ├── generate_query_embedding
+│   └── query_runbooks
+├── generate_hypothesis
+└── verify_citations       # diagnosed path only
+```
+
+The measurements do not justify splitting embedding into initialization versus
+inference or splitting database work into connection acquisition, SQL execution,
+fetching, and validation. The current spans answer the demonstrated operational
+question without obscuring the domain workflow.
+
+> Span granularity should increase only when an existing span becomes too coarse
+> to answer a demonstrated operational question.
+
+Phase 5.2 answered the current retrieval question.
+
+### Deliberately postponed observability options
+
+Prometheus and OpenTelemetry metrics remain intentionally deferred. Aggregate
+questions such as investigation throughput, latency distribution,
+diagnosed/inconclusive rate, retrieval failure rate, and reasoner failure rate
+could become useful in a continuously running system. ResolveAI currently has no
+sustained workload, SLO, or recurring monitoring requirement that would make
+retaining those time series useful.
+
+Grafana remains deferred because there is no retained metrics backend, retained
+trace backend, or operational dashboard question requiring repeated
+visualization. Console tracing sufficiently answers the current
+single-investigation debugging question. There is no mandatory OpenTelemetry →
+Prometheus → Grafana sequence.
+
+Automatic FastAPI, psycopg, OpenAI/OpenRouter, and frontend instrumentation also
+remain deferred, as do OTLP export and a Collector. Manual domain spans keep the
+meaningful investigation workflow visible and already answer the current
+question.
+
+Known visibility limitations are:
+
+- no HTTP parent span;
+- 404 and pre-investigation failures may occur outside the domain trace;
+- no real-provider timing has been measured;
+- console traces are not retained;
+- no cross-process trace propagation exists.
+
+These are known limitations, not automatic implementation tasks. The existing
+`generate_hypothesis` span is positioned to measure provider latency if a future
+runtime requirement uses a real reasoner.
+
+### Phase 5 conclusion
+
+Phase 5 demonstrated that observability is valuable because it changed what is
+known about the running application:
+
+```text
+observability
+→ exposed where latency actually occurred
+→ justified one finer measurement
+→ showed first-call embedding behavior
+→ showed warm PostgreSQL retrieval latency
+→ prevented unsupported optimization work
+```
+
+No dependency, exporter, metrics system, retained telemetry backend, or runtime
+optimization was added for Phase 5.2.
+
+The completed architectural progression was:
+
+```text
+operational question
+→ smallest useful signal
+→ measurement
+→ observed limitation
+→ one justified refinement
+→ question answered
+→ stop
+```
+
+Phase 5.1 exit status: complete.
+Phase 5.2 exit status: complete.
+Phase 5 exit status: complete.
+
+## Phase 6.1 — Docker
+
+Phase 6.1 was implemented in two slices. The first packaged FastAPI beside the
+existing PostgreSQL service while Next.js remained on the host. The second
+packaged the production Next.js application and completed this topology:
+
+```text
+Compose
+├── database   PostgreSQL + pgvector
+├── api        FastAPI
+└── web        Next.js production server
+```
+
+The root `Dockerfile` is a readable single-stage Python 3.13 image. It installs
+the repository's locked non-development dependencies with uv, copies the
+`resolve_ai` package, exposes container port 8000, and starts
+`resolve_ai.api:app` with Uvicorn bound to `0.0.0.0:8000`. `.dockerignore` keeps
+the local virtual environment, `.env`, caches, and generated frontend files out
+of the build context.
+
+The `api` Compose service publishes container port 8000 on host port 8000 and
+receives this local Compose connection string:
+
+```text
+postgresql://resolveai:resolveai@database:5432/resolveai
+```
+
+`database` is the PostgreSQL service's DNS name on the Compose network. The
+existing database image, initialization bind mount, named data volume, and host
+port remain unchanged. pgvector remains an extension in that PostgreSQL service,
+not a separate service.
+
+No database readiness mechanism was added. FastAPI startup imports the
+application without connecting to PostgreSQL; the database URL is read and the
+connection is opened only when an investigation executes retrieval. Compose
+startup ordering is therefore sufficient for this local slice.
+
+The frontend `web/Dockerfile` is a separate single-stage Node 24 image. It uses
+the pnpm 11.21.0 version pinned by the project, installs the frozen lockfile,
+builds the existing Next.js application, exposes port 3000, and runs the
+production `next start` script. Its build context is `web/`, so
+`web/.dockerignore` independently excludes host dependencies, build output,
+local environment files, and TypeScript build state.
+
+The current rewrite configuration reads `RESOLVEAI_API_URL` while
+`next.config.ts` runs. `next build` resolves that value and writes
+`http://api:8000/:path*` into the production routes manifest. The web service
+therefore receives `http://api:8000` at build time, and Compose also supplies the
+same value at startup for consistent config evaluation. Requests use the built
+rewrite; changing only the startup environment does not dynamically replace it.
+
+Neither Next.js startup nor FastAPI startup requires its downstream service to
+be ready. The Compose dependency chain expresses understandable startup order
+without health checks, wait scripts, or custom entrypoints.
+
+The final containerized smoke test confirmed all three services remained
+running, the production page loaded through host port 3000, and frontend GET and
+POST `/api` requests reached FastAPI from the web container's Compose-network IP.
+`INC-001` produced the expected connection-pool diagnosis with three retrieved
+runbooks. FastAPI connected through `database:5432`; pgvector remained installed,
+all nine runbooks remained present, and zero embeddings were missing. The test
+used the deterministic fake and made no model API call. No stored embeddings
+were regenerated or overwritten.
+
+Deliberately postponed:
+
+- production deployment configuration;
+- multi-stage builds, image hardening, and image-size optimization;
+- retained FastEmbed model caching across API-container replacement;
+- a reverse proxy in front of the two application services;
+- automatic embedding-population or database-wait services;
+- CI, image publishing, AWS, and Terraform.
+
+Phase 6.1 API-container slice status: complete.
+Phase 6.1 frontend-container slice status: complete.
+Phase 6.1 exit status: complete.
+
 ## Verification status
 
-- 59 deterministic tests pass without a model API call.
+- 60 deterministic tests pass without a model API call.
 - 2 PostgreSQL integration tests are deliberately skipped in the ordinary run
   because one resets all stored embeddings to exercise population behavior.
 - Live PostgreSQL contains all nine runbooks with no missing embeddings.
 - Ruff lint and formatting checks pass.
 - The uv dependency lock and Git diff validation pass.
 - Frontend TypeScript validation, ESLint, and the Next.js production build pass.
-- The local PostgreSQL + FastAPI + Next.js smoke test passed for `INC-001`,
-  `INC-002`, `INC-003`, and the proxied FastAPI 404 response.
+- The three-service Compose smoke test passed for the production frontend,
+  same-origin API rewrite, deterministic investigation, and database retrieval.
 
 ## Next phase
 
-Phase 5 — Observability is next, but no Phase 5 implementation has begun.
-
-Immediate starting question:
-
-> A ResolveAI investigation now contains multiple meaningful internal operations,
-> but operational visibility is still primarily at the request/result level.
-> Determine what observability is now justified before introducing OpenTelemetry,
-> Prometheus, or Grafana.
-
-Phase 5 should continue the same process:
-
-```text
-identify operational question
-→ choose smallest observable signal
-→ measure limitation
-→ add complexity only when justified
-```
+Phase 6.2 — CI is next, but no CI implementation has begun.

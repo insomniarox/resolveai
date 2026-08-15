@@ -834,7 +834,8 @@ Docker answers:
 
 It creates a reproducible runtime artifact.
 
-Docker Compose can later reproduce the local multi-service environment.
+Docker Compose now reproduces the local PostgreSQL, FastAPI, and Next.js
+multi-service environment implemented in Phase 6.1.
 
 ---
 

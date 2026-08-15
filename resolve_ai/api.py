@@ -25,6 +25,9 @@ from fastapi import FastAPI, HTTPException, status
 from resolve_ai.fixtures import get_incident_context, list_incidents
 from resolve_ai.investigation import investigate_incident
 from resolve_ai.models import Incident, InvestigationResult
+from resolve_ai.telemetry import configure_console_tracing
+
+configure_console_tracing()
 
 # Uvicorn imports this application object from ``resolve_ai.api:app`` when the
 # development server starts. Creating it does not start a server by itself.

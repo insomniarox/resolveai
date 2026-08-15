@@ -11,5 +11,29 @@ services:
       - resolveai_postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
 
+  api:
+    build:
+      context: .
+    environment:
+      # Compose service names are DNS names on the shared default network.
+      DATABASE_URL: postgresql://resolveai:resolveai@database:5432/resolveai
+    ports:
+      - "8000:8000"
+    depends_on:
+      - database
+
+  web:
+    build:
+      context: ./web
+      args:
+        RESOLVEAI_API_URL: http://api:8000
+    environment:
+      # Keep startup configuration consistent with the build-time rewrite.
+      RESOLVEAI_API_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   resolveai_postgres_data:

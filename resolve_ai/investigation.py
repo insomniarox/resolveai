@@ -11,6 +11,8 @@ There are no loops, retries, persistent state, or conditional tool calls, so a
 workflow framework such as LangGraph would make this sequence harder to follow.
 """
 
+from opentelemetry import trace
+
 from resolve_ai.fake_model import generate_fake_hypothesis
 from resolve_ai.models import (
     Diagnosis,
@@ -27,6 +29,7 @@ from resolve_ai.reasoning import HypothesisGenerator, InsufficientEvidenceError
 from resolve_ai.retrieval import semantic_search_runbooks
 
 _RUNBOOK_RETRIEVAL_LIMIT = 3
+tracer = trace.get_tracer(__name__)
 
 
 class UnknownEvidenceError(Exception):
@@ -45,41 +48,103 @@ def investigate_incident(
     PostgreSQL failures intentionally propagate because missing retrieval is a
     system failure, not evidence that the incident is inconclusive.
     """
-    log_evidence = inspect_logs(context)
-    deployment_evidence = inspect_deployments(context)
-    evidence = log_evidence + deployment_evidence
+    with tracer.start_as_current_span(
+        "investigation",
+        attributes={
+            "resolveai.incident.id": context.incident.id,
+            "resolveai.incident.service": context.incident.service,
+        },
+    ) as investigation_span:
+        log_evidence = inspect_logs(context)
+        deployment_evidence = inspect_deployments(context)
+        evidence = log_evidence + deployment_evidence
+        investigation_span.set_attribute("resolveai.evidence.count", len(evidence))
 
-    retrieval_query = build_runbook_query(context, evidence)
-    retrieved_runbooks = semantic_search_runbooks(
-        database_url=database_url,
-        query=retrieval_query,
-        limit=_RUNBOOK_RETRIEVAL_LIMIT,
-    )
-
-    # Insufficient evidence is an expected investigation outcome, not a server
-    # failure. Other exceptions are intentionally not caught here because they
-    # represent defects or unexpected failures that should remain visible.
-    try:
-        hypothesis = hypothesis_generator(
-            context.incident,
-            evidence,
-            retrieved_runbooks,
+        retrieval_query = build_runbook_query(context, evidence)
+        with tracer.start_as_current_span(
+            "retrieve_runbooks",
+            attributes={
+                "resolveai.retrieval.strategy": "semantic",
+                "resolveai.retrieval.limit": _RUNBOOK_RETRIEVAL_LIMIT,
+            },
+        ) as retrieval_span:
+            retrieved_runbooks = semantic_search_runbooks(
+                database_url=database_url,
+                query=retrieval_query,
+                limit=_RUNBOOK_RETRIEVAL_LIMIT,
+            )
+            retrieval_span.set_attribute(
+                "resolveai.retrieval.result_count",
+                len(retrieved_runbooks),
+            )
+        investigation_span.set_attribute(
+            "resolveai.retrieval.result_count",
+            len(retrieved_runbooks),
         )
-    except InsufficientEvidenceError:
-        return _build_inconclusive_result(
+
+        inconclusive = False
+        with tracer.start_as_current_span(
+            "generate_hypothesis",
+            attributes={
+                "resolveai.evidence.count": len(evidence),
+                "resolveai.runbook.count": len(retrieved_runbooks),
+            },
+        ) as reasoning_span:
+            if hypothesis_generator is generate_fake_hypothesis:
+                reasoning_span.set_attribute(
+                    "resolveai.reasoner.name",
+                    "deterministic_fake",
+                )
+
+            # Catch the expected abstention before it escapes the span context so
+            # OpenTelemetry does not classify it as a failed operation.
+            try:
+                hypothesis = hypothesis_generator(
+                    context.incident,
+                    evidence,
+                    retrieved_runbooks,
+                )
+            except InsufficientEvidenceError:
+                inconclusive = True
+                reasoning_span.set_attribute(
+                    "resolveai.reasoning.outcome",
+                    InvestigationStatus.INCONCLUSIVE.value,
+                )
+            else:
+                reasoning_span.set_attribute(
+                    "resolveai.reasoning.outcome",
+                    "proposed",
+                )
+
+        if inconclusive:
+            result = _build_inconclusive_result(
+                context.incident.id,
+                evidence,
+                retrieved_runbooks,
+            )
+            investigation_span.set_attribute(
+                "resolveai.investigation.status",
+                result.status.value,
+            )
+            return result
+
+        result = verify_hypothesis(
             context.incident.id,
+            hypothesis,
             evidence,
             retrieved_runbooks,
         )
 
-    # Hypothesis generation proposes a conclusion; verification is deliberately
-    # a separate application step because model output must not be trusted blindly.
-    return verify_hypothesis(
-        context.incident.id,
-        hypothesis,
-        evidence,
-        retrieved_runbooks,
-    )
+        investigation_span.set_attribute(
+            "resolveai.investigation.status",
+            result.status.value,
+        )
+        if result.diagnosis is not None:
+            investigation_span.set_attribute(
+                "resolveai.root_cause.label",
+                result.diagnosis.root_cause_label.value,
+            )
+        return result
 
 
 def build_runbook_query(
@@ -193,18 +258,24 @@ def verify_hypothesis(
     semantically proves the claim. That more difficult evaluation problem remains
     postponed.
     """
-    # Turn the list into a lookup table such as {"LOG-001": Evidence(...)} so
-    # each model-provided citation can be checked directly.
-    evidence_by_id = {item.id: item for item in evidence}
-    missing_ids = [
-        evidence_id
-        for evidence_id in hypothesis.cited_evidence_ids
-        if evidence_id not in evidence_by_id
-    ]
+    with tracer.start_as_current_span(
+        "verify_citations",
+        attributes={
+            "resolveai.citation.count": len(hypothesis.cited_evidence_ids),
+        },
+    ):
+        # Turn the list into a lookup table such as {"LOG-001": Evidence(...)} so
+        # each model-provided citation can be checked directly.
+        evidence_by_id = {item.id: item for item in evidence}
+        missing_ids = [
+            evidence_id
+            for evidence_id in hypothesis.cited_evidence_ids
+            if evidence_id not in evidence_by_id
+        ]
 
-    if missing_ids:
-        missing = ", ".join(missing_ids)
-        raise UnknownEvidenceError(f"Hypothesis cited unknown evidence: {missing}")
+        if missing_ids:
+            missing = ", ".join(missing_ids)
+            raise UnknownEvidenceError(f"Hypothesis cited unknown evidence: {missing}")
 
     return InvestigationResult(
         incident_id=incident_id,
