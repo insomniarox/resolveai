@@ -768,12 +768,35 @@ question requiring those additions.
 > Span granularity should increase only when an existing span becomes too coarse
 > to answer a demonstrated operational question.
 
-Phase 3, Phase 4, Phase 5, and Phase 6.1 are complete. Phase 6.2 — CI is next
-and has not started.
+Phase 3, Phase 4, Phase 5, and Phase 6.1 are complete. The first Phase 6.2 CI
+slice is implemented locally and awaits its first successful GitHub Actions run.
+
+## Phase 6.2 — Continuous integration
+
+The `CI` GitHub Actions workflow runs on every push and pull request. Its
+independent `backend` and `frontend` jobs can run in parallel and automate the
+same checks used locally.
+
+The backend job uses Python 3.13 and uv 0.11.6, verifies `uv.lock`, checks Python
+lint and formatting, and runs the deterministic pytest suite. The ordinary run
+does not configure PostgreSQL or model credentials, so the two tests marked as
+PostgreSQL integrations remain skipped.
+
+The frontend job uses Node 24 and the pnpm 11.21.0 version declared in
+`web/package.json`. From `web/`, it installs the frozen dependency graph, checks
+TypeScript and ESLint, and creates the Next.js production build. The build
+compiles the API rewrite but does not require FastAPI to be running.
+
+This first slice deliberately has no dependency caches, service containers,
+real retrieval or model evaluation, browser end-to-end testing, Docker image
+verification or publishing, deployment, or version matrices. Local checks
+validate the workflow's commands and structure; Phase 6.2 remains open until the
+workflow itself executes successfully on GitHub.
 
 ## Verify
 
 ```bash
+uv lock --check
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest

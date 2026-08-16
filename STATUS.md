@@ -14,7 +14,8 @@ Phase 6 — Productionization is the current phase.
 
 Phase 6.1 — Docker is complete.
 
-Phase 6.2 — CI is next and has not started.
+Phase 6.2 — CI has its first workflow implemented locally and awaits its first
+successful GitHub Actions run.
 
 ## Completed phases
 
@@ -657,11 +658,46 @@ Deliberately postponed:
 - retained FastEmbed model caching across API-container replacement;
 - a reverse proxy in front of the two application services;
 - automatic embedding-population or database-wait services;
-- CI, image publishing, AWS, and Terraform.
+- image publishing, AWS, and Terraform.
 
 Phase 6.1 API-container slice status: complete.
 Phase 6.1 frontend-container slice status: complete.
 Phase 6.1 exit status: complete.
+
+## Phase 6.2 — CI first slice
+
+The first CI workflow is implemented in `.github/workflows/ci.yml`. Every push
+and pull request starts two independent Ubuntu jobs that can run in parallel:
+
+```text
+GitHub Actions
+├── backend
+│   ├── Python 3.13 and uv 0.11.6
+│   ├── uv lock validation
+│   ├── Ruff lint and format checks
+│   └── deterministic pytest suite
+└── frontend
+    ├── Node 24 and pnpm 11.21.0
+    ├── frozen dependency installation
+    ├── TypeScript and ESLint checks
+    └── Next.js production build
+```
+
+The jobs do not depend on each other. The backend job starts no PostgreSQL
+service and supplies no database or model credentials; its two PostgreSQL
+integration tests remain deliberately skipped. The frontend build does not
+start or contact FastAPI.
+
+This first slice deliberately omits dependency caching, integration and model
+evaluation, browser end-to-end testing, Docker image verification or publishing,
+version matrices, deployment, AWS, and Terraform.
+
+The workflow file and its underlying commands have been verified locally. That
+does not prove execution on a GitHub-hosted runner, so Phase 6.2 is not complete
+until the pushed workflow reports successful `backend` and `frontend` jobs.
+
+Phase 6.2 first-slice implementation status: implemented locally, awaiting
+GitHub Actions execution.
 
 ## Verification status
 
@@ -672,9 +708,13 @@ Phase 6.1 exit status: complete.
 - Ruff lint and formatting checks pass.
 - The uv dependency lock and Git diff validation pass.
 - Frontend TypeScript validation, ESLint, and the Next.js production build pass.
+- The initial two-job CI workflow is locally validated but has not yet executed
+  on GitHub.
 - The three-service Compose smoke test passed for the production frontend,
   same-origin API rewrite, deterministic investigation, and database retrieval.
 
 ## Next phase
 
-Phase 6.2 — CI is next, but no CI implementation has begun.
+Push the first Phase 6.2 workflow and confirm that both GitHub-hosted jobs pass.
+Only then decide whether the observed CI result closes Phase 6.2 or justifies a
+small follow-up such as container-image build verification.
