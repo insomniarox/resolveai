@@ -20,6 +20,7 @@ from resolve_ai.models import (
     EvidenceKind,
     EvidenceSource,
     Hypothesis,
+    Incident,
     IncidentContext,
     InvestigationResult,
     InvestigationStatus,
@@ -41,26 +42,42 @@ def investigate_incident(
     database_url: str,
     hypothesis_generator: HypothesisGenerator = generate_fake_hypothesis,
 ) -> InvestigationResult:
-    """Run the synchronous workflow with evidence and retrieved knowledge.
+    """Adapt fixture/collector records into the shared investigation workflow."""
+    evidence = inspect_logs(context) + inspect_deployments(context)
+    return investigate_evidence(
+        incident=context.incident,
+        evidence=evidence,
+        database_url=database_url,
+        hypothesis_generator=hypothesis_generator,
+    )
 
-    This is the main domain function. It accepts data rather than an HTTP request,
-    which is why tests can call it directly without starting FastAPI or Uvicorn.
+
+def investigate_evidence(
+    incident: Incident,
+    evidence: list[Evidence],
+    database_url: str,
+    hypothesis_generator: HypothesisGenerator = generate_fake_hypothesis,
+) -> InvestigationResult:
+    """Run the synchronous workflow from normalized operational Evidence.
+
+    Fixture collectors and runtime JSON inputs both adapt into this boundary.
     PostgreSQL failures intentionally propagate because missing retrieval is a
-    system failure, not evidence that the incident is inconclusive.
+    system failure, not evidence that the incident is inconclusive. Inputs are
+    copied so a reasoner cannot mutate caller-owned transport or fixture state.
     """
+    incident = incident.model_copy(deep=True)
+    evidence = [item.model_copy(deep=True) for item in evidence]
+
     with tracer.start_as_current_span(
         "investigation",
         attributes={
-            "resolveai.incident.id": context.incident.id,
-            "resolveai.incident.service": context.incident.service,
+            "resolveai.incident.id": incident.id,
+            "resolveai.incident.service": incident.service,
         },
     ) as investigation_span:
-        log_evidence = inspect_logs(context)
-        deployment_evidence = inspect_deployments(context)
-        evidence = log_evidence + deployment_evidence
         investigation_span.set_attribute("resolveai.evidence.count", len(evidence))
 
-        retrieval_query = build_runbook_query(context, evidence)
+        retrieval_query = build_runbook_query(incident, evidence)
         with tracer.start_as_current_span(
             "retrieve_runbooks",
             attributes={
@@ -100,7 +117,7 @@ def investigate_incident(
             # OpenTelemetry does not classify it as a failed operation.
             try:
                 hypothesis = hypothesis_generator(
-                    context.incident,
+                    incident,
                     evidence,
                     retrieved_runbooks,
                 )
@@ -118,7 +135,7 @@ def investigate_incident(
 
         if inconclusive:
             result = _build_inconclusive_result(
-                context.incident.id,
+                incident.id,
                 evidence,
                 retrieved_runbooks,
             )
@@ -129,7 +146,7 @@ def investigate_incident(
             return result
 
         result = verify_hypothesis(
-            context.incident.id,
+            incident.id,
             hypothesis,
             evidence,
             retrieved_runbooks,
@@ -148,13 +165,13 @@ def investigate_incident(
 
 
 def build_runbook_query(
-    context: IncidentContext,
+    incident: Incident,
     evidence: list[Evidence],
 ) -> str:
     """Build a deterministic query from the report and observed facts."""
     lines = [
-        f"Incident: {context.incident.title}",
-        f"Description: {context.incident.description}",
+        f"Incident: {incident.title}",
+        f"Description: {incident.description}",
         "Observed evidence:",
     ]
     lines.extend(f"- {item.summary}" for item in evidence)

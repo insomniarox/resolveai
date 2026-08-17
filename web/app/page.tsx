@@ -1,4 +1,4 @@
-import { InvestigationWorkspace } from "@/components/investigation-workspace";
+import { InvestigationModeWorkspace } from "@/components/investigation-mode-workspace";
 
 export default function Home() {
   return (
@@ -9,12 +9,12 @@ export default function Home() {
           <h1>ResolveAI</h1>
         </div>
         <p className="page-introduction">
-          Review synthetic operational evidence, investigate an incident, and
-          inspect the supported conclusion.
+          Follow the prepared synthetic demo or submit one transient runtime
+          incident bundle, then inspect the supported conclusion.
         </p>
       </header>
 
-      <InvestigationWorkspace />
+      <InvestigationModeWorkspace />
     </main>
   );
 }

@@ -177,6 +177,24 @@ async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
       const errorBody: unknown = await response.json();
       if (isRecord(errorBody) && typeof errorBody.detail === "string") {
         message = errorBody.detail;
+      } else if (isRecord(errorBody) && Array.isArray(errorBody.detail)) {
+        const validationMessages = errorBody.detail.flatMap((item) => {
+          if (
+            !isRecord(item) ||
+            !Array.isArray(item.loc) ||
+            typeof item.msg !== "string"
+          ) {
+            return [];
+          }
+          const location = item.loc
+            .filter((part) => part !== "body")
+            .map(String)
+            .join(".");
+          return `${location || "bundle"}: ${item.msg}`;
+        });
+        if (validationMessages.length > 0) {
+          message = `Invalid runtime bundle — ${validationMessages.join("; ")}`;
+        }
       }
     } catch {
       // FastAPI may return a non-JSON body for an unhandled server failure.
@@ -203,6 +221,20 @@ export async function investigateIncident(
     `/api/incidents/${encodeURIComponent(incidentId)}/investigate`,
     { method: "POST" },
   );
+  if (!isInvestigationResult(value)) {
+    throw new UnexpectedResponseError();
+  }
+  return value;
+}
+
+export async function investigateRuntimeBundle(
+  bundle: unknown,
+): Promise<InvestigationResult> {
+  const value = await requestJson("/api/runtime/investigate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bundle),
+  });
   if (!isInvestigationResult(value)) {
     throw new UnexpectedResponseError();
   }

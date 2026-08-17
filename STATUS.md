@@ -10,12 +10,33 @@ Phase 5.1 manual tracing is complete.
 
 Phase 5.2 retrieval trace decomposition is complete.
 
-Phase 6 — Productionization is the current phase.
+Phase 6 — Productionization is complete.
 
 Phase 6.1 — Docker is complete.
 
-Phase 6.2 — CI has its first workflow implemented locally and awaits its first
-successful GitHub Actions run.
+Phase 6.2 — CI is complete.
+
+Phase 6.3 — Public Portfolio Deployment is complete.
+
+Phase 6.3.1 — Northflank Sandbox confirmation is complete.
+
+Phase 6.3.2 — Private PostgreSQL + pgvector initialization is complete.
+
+Phase 6.3.3 — Private FastAPI deployment and resource-fit verification is
+complete.
+
+Phase 6.3.4 — Public Next.js deployment and browser-level reviewer-flow
+verification are complete.
+
+Phase 7.1 — Versioned runtime incident input is complete locally and has not yet
+been deployed to Northflank.
+
+Phase 7.2 — Controlled real-model runtime reasoning is the next phase. It has
+not started.
+
+The post-deployment product robustness review is complete. Its first
+runtime-generalization slice is implemented; later Phase 7 and 8 work has not
+started.
 
 ## Completed phases
 
@@ -664,7 +685,7 @@ Phase 6.1 API-container slice status: complete.
 Phase 6.1 frontend-container slice status: complete.
 Phase 6.1 exit status: complete.
 
-## Phase 6.2 — CI first slice
+## Phase 6.2 — CI
 
 The first CI workflow is implemented in `.github/workflows/ci.yml`. Every push
 and pull request starts two independent Ubuntu jobs that can run in parallel:
@@ -688,33 +709,339 @@ service and supplies no database or model credentials; its two PostgreSQL
 integration tests remain deliberately skipped. The frontend build does not
 start or contact FastAPI.
 
-This first slice deliberately omits dependency caching, integration and model
-evaluation, browser end-to-end testing, Docker image verification or publishing,
-version matrices, deployment, AWS, and Terraform.
+Validation happened in two distinct stages:
 
-The workflow file and its underlying commands have been verified locally. That
-does not prove execution on a GitHub-hosted runner, so Phase 6.2 is not complete
-until the pushed workflow reports successful `backend` and `frontend` jobs.
+```text
+local verification
+→ workflow implementation validated against existing commands
 
-Phase 6.2 first-slice implementation status: implemented locally, awaiting
-GitHub Actions execution.
+GitHub-hosted verification
+→ backend job green
+→ frontend job green
+```
+
+Local verification showed that ResolveAI worked in the developer environment.
+The successful GitHub-hosted run, externally verified after the workflow was
+pushed, showed that its declared setup and commands also work on clean external
+runners rather than depending on developer-machine state.
+
+> ResolveAI now automatically verifies its backend and frontend verification
+> contracts on GitHub-hosted runners for pushes and pull requests.
+
+The first slice deliberately omits PostgreSQL integration tests because they are
+not part of the deterministic default suite and one resets stored embeddings.
+Model evaluations remain measurements rather than deterministic CI regressions.
+Docker image verification has not been shown to be necessary for every change.
+Caching and version matrices have no measured need, while publishing and cloud
+deployment belong to the next productionization phase.
+
+Phase 6.2 exit status: complete.
+
+## Phase 6.3 — Public portfolio deployment
+
+The immediate deployment direction changed from AWS ECS/Fargate and Terraform
+to Northflank Sandbox. ResolveAI is a hobby and portfolio project whose current
+goal is a public demonstration at zero ongoing hosting cost. The Docker and CI
+work remains valid: Docker proves reproducible packaging, GitHub Actions verifies
+the application, and Northflank supplies the smallest managed public runtime.
+
+The target topology is:
+
+```text
+browser
+   ↓ public HTTPS
+Northflank web :3000                         deployed and browser verified
+   ↓ server-side /api rewrite, private HTTP
+Northflank api :8000                         deployed
+   ↓ private PostgreSQL connection
+Northflank PostgreSQL + pgvector             ready
+```
+
+### Phase 6.3.1 — Sandbox confirmation
+
+The free Sandbox allowance was confirmed to fit one project containing two
+services and one PostgreSQL addon. The project deliberately uses the included
+resource sizes and does not add paid capacity, uptime workarounds, or unrelated
+services.
+
+Phase 6.3.1 exit status: complete.
+
+### Phase 6.3.2 — Database initialization
+
+A private Northflank PostgreSQL addon now contains the ResolveAI database. The
+existing `database/init.sql` enabled pgvector, created the schema and indexes,
+and inserted or updated the frozen nine-runbook corpus. The existing explicit
+FastEmbed population command generated the stored 384-dimensional embeddings;
+all nine runbooks have an embedding.
+
+Provisioning the addon and initializing ResolveAI were kept separate. Database
+initialization was a deliberate one-time operation, not an API startup side
+effect or an always-running service. It made no OpenAI or OpenRouter request.
+The standard application connection is used at runtime, while the administrator
+connection is reserved for setup and maintenance.
+
+Phase 6.3.2 exit status: complete.
+
+### Phase 6.3.3 — Private FastAPI and resource fit
+
+The `api` combined service builds the existing repository-root `Dockerfile` and
+runs the existing Uvicorn command on `0.0.0.0:8000`. The port is configured as a
+private Northflank HTTP port. The PostgreSQL addon's standard `POSTGRES_URI` is
+linked through a runtime secret group under the alias `DATABASE_URL`; no database
+credential or model-provider credential is committed.
+
+Runtime verification showed:
+
+- the container saw `DATABASE_URL` without exposing its value;
+- a direct database check returned nine runbooks and nine embeddings;
+- `GET /incidents` returned HTTP 200;
+- cold and warm `INC-001` investigations returned HTTP 200;
+- the deterministic fake completed without an external model call;
+- semantic retrieval returned three runbooks;
+- repeated warm requests remained stable without an OOM or container restart.
+
+The free API service has a 512 MiB memory limit. Observed memory was:
+
+```text
+pre-model API footprint  approximately 110 MiB
+cold FastEmbed peak      approximately 440 MiB  (86%)
+warm retained footprint  approximately 320 MiB  (63%)
+```
+
+The cold peak leaves limited margin, but the model remains cached and normal
+warm investigations stay within an acceptable range. This is sufficient for the
+intended low-concurrency portfolio demonstration. Simultaneous cold
+initialization is outside the Sandbox workload contract and remains a documented
+capacity limitation rather than a reason to add paid infrastructure now.
+
+Phase 6.3.3 exit status: complete.
+
+### Phase 6.3.4 — Public Next.js and end-to-end verification
+
+The existing production Next.js container is deployed at:
+
+```text
+https://p01--web--2g46kqjy6mpk.code.run/
+```
+
+The service exposes public HTTPS on port 3000 and was built with
+`RESOLVEAI_API_URL=http://api:8000`, preserving the intended same-origin browser
+path through the private FastAPI service.
+
+An independent direct HTTPS smoke test from the development environment passed:
+
+- `GET /` returned HTTP 200 with valid TLS and the Next.js application;
+- `GET /api/incidents` returned HTTP 200 with `INC-001` through `INC-003`;
+- `POST /api/incidents/INC-001/investigate` returned HTTP 200 with the expected
+  connection-pool diagnosis, verified supporting Evidence, and three retrieved
+  runbooks;
+- `POST /api/incidents/INC-003/investigate` returned HTTP 200 with the expected
+  successful `inconclusive` outcome and no invented diagnosis;
+- a repeated warm `INC-001` investigation returned HTTP 200;
+- every tested request remained on the public Next.js origin under `/api`; no
+  client request was redirected to the private API hostname.
+
+The reviewer-facing browser check ran in headless Chromium from the cached
+Docker `mcp/playwright` image against the public HTTPS deployment:
+
+```text
+open public HTTPS URL                                 passed
+render INC-001, INC-002, and INC-003                  passed
+run INC-001 and render diagnosed presentation         passed
+distinguish 3 collected / 2 supporting Evidence items passed
+render 3 RetrievedRunbooks in a separate section      passed
+run INC-003 and render successful inconclusive state  passed
+keep GET/POST browser requests on same-origin /api     passed
+avoid failed requests, page errors, and layout overflow passed
+```
+
+The three observed browser API responses were HTTP 200 for `GET /api/incidents`,
+`POST /api/incidents/INC-001/investigate`, and
+`POST /api/incidents/INC-003/investigate`. Supporting Evidence used a distinct
+green accent, role label, border, and background; uncited collected context used
+neutral styling; retrieved guidance remained in its own labelled section. The
+captured diagnosed and inconclusive pages showed no material rendering issue at
+a 1440 by 900 viewport and no horizontal overflow.
+
+Chromium reported one 404 for the optional `/favicon.ico`. It did not affect an
+application asset, API request, interaction, or rendered result and is therefore
+recorded as non-material. There were no failed requests, uncaught page errors,
+or other console errors.
+
+Phase 6.3.4 exit status: complete.
+Phase 6.3 exit status: complete.
+Phase 6 exit status: complete.
+
+As recorded at Phase 6 close, Phase 7.1 was not started inside that deployment
+verification slice.
+
+## Phase 7.1 — Versioned runtime incident input
+
+Phase 7.1 introduces a separate bounded public transport contract without
+changing the frozen `IncidentContext` fixture representation. A version-1
+`RuntimeIncidentBundle` contains one incident and between one and fifty
+normalized Evidence items. Validation rejects unknown fields and schema
+versions, ambiguous timestamps, duplicate Evidence IDs, invalid identifier
+shapes, oversized text/detail collections, and unsupported field values.
+
+Both input worlds now adapt into one shared domain boundary:
+
+```text
+prepared fixture
+→ inspect logs and deployments
+→ Incident + Evidence[]
+                         ↘
+                           investigate_evidence()
+                         ↗
+runtime JSON bundle
+→ validate and adapt
+→ Incident + Evidence[]
+```
+
+`POST /runtime/investigate` processes the bundle synchronously and transiently.
+It does not insert incidents or Evidence into PostgreSQL, mutate fixture data,
+change benchmark inputs, create accounts, retain investigation history, accept
+file uploads, or introduce CRUD/repository infrastructure. Retrieval continues
+to use the frozen nine-runbook corpus.
+
+The Next.js application now exposes two clearly labelled tabs: Guided demo and
+Runtime JSON. The runtime path supplies an editable novel example, discloses the
+deterministic reasoner and non-retention policy, renders the existing diagnosed
+or inconclusive result components, and distinguishes malformed JSON from
+server-side validation feedback.
+
+Local browser verification through the `docker_insta_ai` Playwright MCP passed:
+
+```text
+prepared INC-001 diagnosis                              passed
+novel USER-INC-901 diagnosis                            passed
+3 collected / 2 cited runtime Evidence items            passed
+3 retrieved runbooks kept separate                      passed
+client-side malformed JSON feedback                     passed
+server-side schema validation feedback                  passed
+same-origin /api prepared and runtime requests          passed
+390px viewport without horizontal overflow              passed
+```
+
+The successful runtime request cited only caller-supplied Evidence IDs and
+returned the expected connection-pool diagnosis. A separate deterministic API
+test proves that novel evidence outside the fake patterns returns a successful
+inconclusive result. The guided fixture list remains exactly `INC-001` through
+`INC-003` after runtime requests.
+
+The rebuilt local Compose stack passed both reviewer paths. The successful flow
+had no page errors or failed application requests; `/favicon.ico` retains the
+previously documented non-material 404. The deliberate invalid-bundle browser
+exercise produced its expected HTTP 422 and readable validation message.
+
+Phase 7.1 answers its learning question:
+
+> A previously unseen, versioned incident bundle can pass through ResolveAI's
+> existing investigation workflow without becoming a fixture or persisted row.
+
+This proves generalized input, not generalized reasoning. The deterministic
+fake still recognizes only two patterns, and the runtime output taxonomy remains
+benchmark-shaped. Phase 7.2 owns the real-model/runtime-contract pressure.
+
+Phase 7.1 exit status: complete locally. The Northflank deployment remains on
+the Phase 6 build until a later deliberate deployment.
+
+## Product robustness design decision
+
+At Phase 6 close, repository inspection confirmed that ResolveAI demonstrated a
+strong synthetic investigation and evaluation architecture, not yet a general
+incident product:
+
+- the public API lists only `INC-001` through `INC-003` from Python fixtures;
+- users could select a fixture but could not provide a novel incident or Evidence;
+- the nine runbooks and their embeddings are the only application knowledge
+  persisted in PostgreSQL;
+- the default fake reasoner handles two explicit evidence patterns;
+- real OpenAI and OpenRouter reasoners are evaluator/manual-path capabilities,
+  not the public runtime default;
+- investigation results and provenance are transient;
+- citation verification proves that cited Evidence IDs were collected, not that
+  a citation semantically entails the diagnosis.
+
+That limitation is acceptable for Phase 6.3, whose question is public
+accessibility. It would be a material limitation if treated as the project's final
+portfolio state.
+
+The approved next-stage direction is an explicit two-world architecture:
+
+```text
+ResolveAI
+├── evaluation world
+│   ├── frozen synthetic incidents and expected outcomes
+│   ├── frozen retrieval cases and benchmark corpus
+│   └── reproducible model/retrieval measurements
+└── runtime world
+    ├── user-supplied Incident and normalized Evidence
+    ├── scoped KnowledgeDocument data and embeddings
+    ├── controlled real-model investigations
+    └── later: immutable InvestigationRun provenance
+```
+
+Evaluation fixtures, hashes, labels, and benchmark retrieval inputs remain
+immutable. Mutable runtime rows must not affect benchmark retrieval or expected
+results. The worlds should share the ordinary Python investigation workflow,
+retrieval implementation, structured-output validation, and citation verification
+through explicit adapters. Benchmark-specific closed taxonomies, including the
+current root-cause labels, must not constrain arbitrary runtime diagnoses.
+
+The highest-value next proof was a transient, versioned JSON incident bundle.
+Phase 7.1 now supplies that proof without building CRUD, accounts, or a generic
+persistence layer. Controlled real-model runtime reasoning is next, followed by
+runtime `KnowledgeDocument` ingestion as a separate measured slice. Only after
+those paths prove useful should incidents, Evidence, and immutable investigation
+snapshots become persisted product entities.
+
+The public demo should eventually expose two honest paths:
+
+- a prepared, deterministic guided demo for a fast and repeatable review;
+- an own-data path using one fixed server-side real model with disclosed model
+  metadata, strict input/request/cost limits, and no silent fake fallback.
+
+No application, database, or deployment implementation was performed as part of
+this design review.
 
 ## Verification status
 
-- 60 deterministic tests pass without a model API call.
+- 67 deterministic tests pass without a model API call.
 - 2 PostgreSQL integration tests are deliberately skipped in the ordinary run
   because one resets all stored embeddings to exercise population behavior.
-- Live PostgreSQL contains all nine runbooks with no missing embeddings.
+- Local and Northflank PostgreSQL contain all nine runbooks with no missing
+  embeddings.
 - Ruff lint and formatting checks pass.
 - The uv dependency lock and Git diff validation pass.
 - Frontend TypeScript validation, ESLint, and the Next.js production build pass.
-- The initial two-job CI workflow is locally validated but has not yet executed
-  on GitHub.
+- The GitHub-hosted `backend` and `frontend` CI jobs both pass.
 - The three-service Compose smoke test passed for the production frontend,
-  same-origin API rewrite, deterministic investigation, and database retrieval.
+  same-origin API rewrite, prepared and runtime deterministic investigations,
+  validation feedback, and database retrieval.
+- The private Northflank FastAPI service passed database, cold-investigation,
+  warm-investigation, retrieval, stability, and memory-fit checks.
+- The public Northflank Next.js origin passed direct TLS, page, same-origin API,
+  diagnosed, inconclusive, and repeated warm-request smoke checks.
+- The public reviewer flow passed browser-level Chromium verification for all
+  incident choices, the `INC-001` diagnosis, the `INC-003` inconclusive result,
+  semantic section separation, and same-origin `/api` traffic.
+- Browser verification found no failed requests, page errors, material console
+  errors, rendering overlap, or horizontal overflow. The optional
+  `/favicon.ico` returns a non-material 404.
+- The local Phase 7.1 runtime path passed Docker-backed browser verification at
+  desktop and 390px widths with same-origin API traffic and clear invalid-input
+  feedback.
 
 ## Next phase
 
-Push the first Phase 6.2 workflow and confirm that both GitHub-hosted jobs pass.
-Only then decide whether the observed CI result closes Phase 6.2 or justifies a
-small follow-up such as container-image build verification.
+Begin Phase 7.2 — Controlled real-model runtime reasoning as a separate
+implementation slice. Its learning question is:
+
+> Can the runtime reason beyond the fake's two programmed evidence patterns?
+
+Keep the prepared guided demo deterministic. Select one fixed runtime provider
+and model on the server, disclose its metadata, add explicit cost/concurrency/
+timeout/error boundaries, and never silently fall back to the fake. Phase 7.3
+knowledge ingestion, persistence, accounts, and optional infrastructure remain
+out of scope for that slice.

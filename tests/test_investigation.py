@@ -111,7 +111,7 @@ def test_investigation_includes_ordered_runbooks_without_citing_them(
     ]
     assert search_call == {
         "database_url": "postgresql://test",
-        "query": build_runbook_query(context, result.evidence),
+        "query": build_runbook_query(context.incident, result.evidence),
         "limit": 3,
     }
     assert not {"RUN-004", "RUN-001"} & {item.id for item in result.evidence}
@@ -143,7 +143,7 @@ def test_runbook_query_is_deterministic_and_uses_reported_and_observed_facts() -
     assert context is not None
     evidence = inspect_logs(context) + inspect_deployments(context)
 
-    query = build_runbook_query(context, evidence)
+    query = build_runbook_query(context.incident, evidence)
 
     assert query == (
         "Incident: Payments API returning HTTP 500 responses\n"

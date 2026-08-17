@@ -38,6 +38,12 @@ export interface Evidence {
   details: Record<string, string | number>;
 }
 
+export interface RuntimeIncidentBundle {
+  schema_version: 1;
+  incident: Incident;
+  evidence: Evidence[];
+}
+
 export interface RetrievedRunbook {
   id: string;
   title: string;

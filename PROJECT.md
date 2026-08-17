@@ -9,7 +9,12 @@
 
 ## AI Incident Investigation Copilot
 
-ResolveAI is a production-oriented AI engineering portfolio project built to investigate synthetic software incidents by combining structured operational data, retrieval, LLM reasoning, evaluation, observability, and eventually cloud deployment.
+ResolveAI is a production-oriented AI engineering portfolio project built to
+investigate software incidents by combining structured operational data,
+retrieval, LLM reasoning, evaluation, observability, and public deployment. Its
+current implementation and objective benchmark use deliberately synthetic data;
+the next major capability will accept bounded user-supplied runtime data without
+making the benchmark mutable.
 
 The project has two equally important goals:
 
@@ -70,9 +75,11 @@ Confidence:
 0.87
 ```
 
-The project should use entirely synthetic data.
-
-No real employer, banking, customer, or confidential production data should be included.
+The repository, tests, examples, and evaluation benchmark should use entirely
+synthetic data. The future runtime may accept data deliberately supplied by a
+user, but that data must remain outside version control and outside the frozen
+benchmark. No real employer, banking, customer, secret, or confidential
+production data should be included in the repository or documentation.
 
 ---
 
@@ -146,6 +153,30 @@ The long-term system may contain the following components:
 ```
 
 This is the long-term direction, not the starting implementation.
+
+The next-stage architecture explicitly separates evaluation from runtime use:
+
+```text
+ResolveAI
+│
+├── Evaluation world
+│   ├── frozen synthetic incidents and Evidence
+│   ├── known ground truth and benchmark-only labels
+│   ├── frozen retrieval cases and runbook corpus
+│   └── repeatable retrieval/model evaluation
+│
+└── Runtime world
+    ├── user-supplied Incident and Evidence
+    ├── scoped KnowledgeDocument ingestion
+    ├── controlled real-model reasoning
+    └── later: immutable InvestigationRun history
+```
+
+These are not separate products. They should share the plain-Python
+investigation workflow, retrieval operations, structured-output validation, and
+citation verification. They must not share mutable data implicitly. Evaluation
+fixtures, hashes, ground truth, and retrieval inputs remain immutable, while
+runtime API models and storage may evolve without changing benchmark outcomes.
 
 ---
 
@@ -442,7 +473,8 @@ This phase should explicitly reinforce the difference between:
 
 # PHASE 6 — PRODUCTIONIZATION
 
-Productionization should be implemented as four separate learning steps.
+Productionization and the next capability phases should be implemented as
+separate learning steps.
 
 Each step answers a different engineering question.
 
@@ -458,17 +490,23 @@ Each step answers a different engineering question.
     └── build
     ↓
 
-6.3 Cloud Deployment
-    AWS ECS + Fargate
-    ├── ECR
-    ├── ECS task
-    ├── ECS service
+6.3 Public Portfolio Deployment
+    Northflank Sandbox
+    ├── PostgreSQL + pgvector
+    ├── private FastAPI
+    ├── public Next.js
     └── environment/secrets
     ↓
 
-6.4 Infrastructure as Code
-    Terraform
-    └── reproduce the infrastructure
+7 Runtime Data and Generalized Investigations
+    user-created incidents, evidence, and knowledge
+    ↓
+
+8 External Integration and Demo Hardening
+    one read-only integration and controlled real-model demonstration
+
+Optional infrastructure expansion
+    AWS ECS/Fargate + Terraform
 ```
 
 ---
@@ -549,104 +587,348 @@ CI should automate known engineering practices rather than create new complexity
 
 ---
 
-## 6.3 Cloud Deployment — Running the Container
+## 6.3 Public Portfolio Deployment — Northflank Sandbox
 
 ### Question answered
 
-> Where does the packaged application actually run?
+> Can somebody open ResolveAI from the Internet and run the proven application
+> without the developer machine?
 
-Deploy the application to AWS using ECS with Fargate.
-
-### ECR
-
-Use Amazon Elastic Container Registry to store Docker images.
-
-Conceptually:
+ResolveAI is a hobby and portfolio project, so this milestone requires zero
+ongoing hosting cost. Northflank Sandbox matches the proven Compose topology
+with two services and one PostgreSQL addon while preserving the existing Docker
+packaging.
 
 ```text
-source code
-    ↓
-Docker build
-    ↓
-container image
-    ↓
-ECR
+browser
+   ↓ public HTTPS
+Northflank Next.js
+   ↓ private HTTP
+Northflank FastAPI
+   ↓ private PostgreSQL
+Northflank PostgreSQL + pgvector
 ```
 
-### ECS task
+Only the Next.js service should be public. The browser continues to call
+same-origin `/api` paths, and the Next.js server rewrites them to
+`http://api:8000` over Northflank's private project network. FastAPI receives the
+database connection through a runtime secret named `DATABASE_URL`.
 
-Define how the container should run.
+Implement the deployment in independently verified slices:
 
-The task definition should describe concepts such as:
+```text
+6.3.1 Sandbox confirmation
+6.3.2 PostgreSQL, pgvector, runbooks, and embeddings
+6.3.3 private FastAPI and resource-fit verification
+6.3.4 public Next.js and end-to-end verification
+```
 
-- image;
-- CPU;
-- memory;
-- ports;
-- environment variables;
-- secrets.
+Phases 6.3.1 through 6.3.4 are complete. The private database contains all nine
+runbooks and stored embeddings. The private API builds from the root Dockerfile,
+uses the deterministic fake, and successfully completes cold and warm
+investigations. Its 512 MiB service measured an approximately 440 MiB cold peak
+and 320 MiB warm steady state without an OOM or restart.
 
-### ECS service
+The public Next.js service is available over HTTPS. Browser-level Chromium
+verification rendered all three incidents, completed the diagnosed `INC-001`
+and inconclusive `INC-003` reviewer paths, preserved the visual distinction
+between collected Evidence, supporting Evidence, and retrieved knowledge, and
+observed only same-origin HTTP 200 `/api` responses. There were no failed
+requests, page errors, material console errors, or material rendering problems.
+Phase 6 productionization and the local Phase 7.1 implementation are complete.
+Phase 7.2 is next; Phase 7.1 has not yet been deployed to Northflank.
 
-Use an ECS service to keep the required application task running.
-
-Learn concepts such as:
-
-- desired task count;
-- deployment updates;
-- health;
-- task replacement.
-
-### Fargate
-
-Use Fargate so that the project can run containers without provisioning or maintaining EC2 hosts.
-
-The learning objective is to understand container deployment before introducing host-management complexity.
-
-### Environment and secrets
-
-Configuration must be separated from application code.
-
-Do not commit credentials.
-
-Learn the difference between:
-
-- ordinary environment configuration;
-- sensitive secrets;
-- local `.env` files;
-- cloud-managed configuration.
-
-Only introduce additional AWS services when the application genuinely requires them.
+The Sandbox is a demonstration environment, not a production SLA. Document
+limited capacity and model initialization truthfully. Do not add paid compute,
+keep-alive requests, fake progress, or additional proxy services to conceal free
+tier constraints.
 
 ---
 
-## 6.4 Terraform — Reproducing Infrastructure
+## Phase 7 — Runtime Generality and Investigation Provenance
 
-### Question answered
+Deployment makes the current frozen synthetic system accessible; it does not
+prove that ResolveAI can investigate information the author did not prepare. The
+highest-value next phase is therefore runtime generality, not additional
+infrastructure.
 
-> How do I describe and reproduce the deployment infrastructure instead of creating it manually?
+The current `IncidentContext` naturally describes the fixture collector boundary:
+an `Incident` plus raw logs and deployments. It should not become the public
+general-purpose import contract. Introduce a small runtime input whose essential
+shape is an `Incident` plus normalized `Evidence[]`. The benchmark can adapt its
+existing contexts through `inspect_logs()` and `inspect_deployments()`; runtime
+input can validate and normalize submitted observations. Keep runtime transport
+models distinct from frozen evaluation fixture representations.
 
-Terraform should be introduced **after** the AWS deployment has been understood conceptually.
+The current closed `RootCauseLabel` and evidence enums are useful benchmark
+taxonomies. Arbitrary runtime diagnosis must eventually allow causes outside
+those six prepared labels and tolerate new evidence descriptions without
+weakening benchmark comparability.
 
-Terraform is not the first tool used to discover how AWS works.
+### 7.1 Versioned runtime incident input
 
-First understand the infrastructure.
+#### Question answered
 
-Then encode it.
+> Can ResolveAI investigate an incident that was not created in a Python fixture?
 
-Terraform should reproduce resources such as those required for the ECS/Fargate deployment.
+#### Minimal implementation
 
-The objective is to learn:
+Accept a strictly validated, versioned JSON bundle containing one incident and a
+bounded list of normalized Evidence. Add one small own-data form or import path.
+Process the bundle transiently through the existing sequential workflow; do not
+add accounts, durable storage, file uploads, or generic CRUD yet.
 
-- declarative infrastructure;
-- providers;
-- resources;
-- variables;
-- outputs;
-- Terraform state;
-- planning;
-- applying changes;
-- dependency relationships.
+#### Success criterion
+
+A reviewer can submit a valid external bundle with novel IDs and content, receive
+a structured diagnosed or honestly inconclusive result, and no evaluation fixture
+or benchmark hash changes.
+
+#### New architectural pressure
+
+The evidence-only fake recognizes two explicit patterns and the six-label output
+taxonomy is benchmark-shaped. Unseen input will expose the need for a general
+runtime reasoner and runtime-specific diagnosis contract.
+
+Implementation status: complete locally. The bounded version-1 DTO, transient
+API endpoint, shared `Incident + Evidence[]` orchestration, minimal Runtime JSON
+UI, deterministic diagnosed/inconclusive coverage, and Docker-backed browser
+verification pass. The Northflank deployment remains on the Phase 6 build.
+
+### 7.2 Controlled real-model runtime reasoning
+
+#### Question answered
+
+> Can the public runtime reason about previously unseen evidence rather than only
+> replaying deterministic fixture rules?
+
+#### Minimal implementation
+
+Use one fixed provider/model selected on the server. Keep credentials off the
+browser. Record the provider, model, prompt/schema version, latency, and outcome.
+Apply a global daily budget, per-client request limit, concurrency limit, input
+limits, provider timeout, and explicit provider-error response. Do not offer a
+model picker and do not silently fall back to the deterministic fake.
+
+The deterministic fake remains required for tests, CI, local deterministic
+development, baseline evaluation, and a clearly labeled guided public demo.
+
+#### Success criterion
+
+One novel incident outside the fake's two programmed patterns receives a grounded
+structured diagnosis or a truthful inconclusive result from the disclosed real
+model without exposing credentials or permitting unlimited cost.
+
+#### New architectural pressure
+
+Provider nondeterminism, availability, latency, cost, and broader output language
+will require runtime-specific evaluation and honest failure presentation.
+
+### 7.3 Scoped runtime knowledge ingestion
+
+#### Question answered
+
+> Can ResolveAI retrieve useful knowledge supplied for the current runtime
+> investigation without contaminating the frozen corpus?
+
+#### Minimal implementation
+
+Introduce `KnowledgeDocument` alongside, not as an immediate replacement for,
+the benchmark `Runbook`. Accept a small bounded text or Markdown document set,
+validate it, store it under an explicit short-lived runtime scope, generate one
+FastEmbed embedding per whole document synchronously, and reuse
+PostgreSQL/pgvector Top-3 retrieval. The operation should succeed atomically or
+report embedding failure; partially ready documents must not appear in retrieval.
+
+Do not add chunking, queues, workers, hybrid retrieval, reranking, query rewriting,
+or a dedicated vector database until document size or evaluation demonstrates a
+concrete limitation.
+
+#### Success criterion
+
+A novel incident retrieves an unseen user-supplied document that materially
+supports the investigation, while running the frozen benchmark before and after
+produces the same corpus and expected inputs.
+
+#### New architectural pressure
+
+User-generated corpora introduce scope, ownership, duplicates, stale documents,
+embedding-model version consistency, deletion, and eventual re-embedding
+questions before they create a ranking-algorithm problem.
+
+### 7.4 Runtime evaluation slice
+
+#### Question answered
+
+> Does runtime ingestion work beyond one successful demonstration, and does it
+> fail safely when evidence or knowledge is insufficient?
+
+#### Minimal implementation
+
+Create a separate frozen set of imported runtime bundles covering retrieval,
+citation validity, abstention, malformed input, and corpus isolation. Measure the
+existing semantic baseline before changing retrieval. Keep the original ten-case
+investigation benchmark and retrieval cases unchanged.
+
+#### Success criterion
+
+The runtime bundle suite is repeatable, reports explicit retrieval/reasoning
+outcomes, and proves that mutable runtime documents cannot enter evaluation
+queries.
+
+#### New architectural pressure
+
+Measured failures may justify metadata filters, document chunking, deduplication,
+or a retrieval experiment. Those changes should follow evidence, not precede it.
+
+### 7.5 Minimal investigation provenance
+
+#### Question answered
+
+> Is retaining an investigation materially useful for comparison and
+> explainability rather than merely adding CRUD?
+
+#### Minimal implementation
+
+Persist an immutable `InvestigationRun` snapshot only after transient runtime use
+is proven. Retain the incident input, normalized Evidence, retrieved document IDs
+and scores, citations, diagnosis or failure, reasoner/model metadata, timestamps,
+and latency. Use concrete storage functions; do not introduce a generic
+`Repository[T]` or DAO framework. Start with short-lived anonymous retention and
+an unguessable capability identifier plus explicit deletion.
+
+Persist `Incident` and `Evidence` as first-class rows only when editing, reuse, or
+multiple runs makes that normalization useful. Keep Evidence as the observed-fact
+boundary and retrieved knowledge as a separate reference boundary.
+
+#### Success criterion
+
+A reviewer can compare two runs for one submitted incident and see exactly which
+observations, retrieved knowledge, citations, reasoner, latency, and outcome
+changed.
+
+#### New architectural pressure
+
+Durable private history, cross-device access, or private knowledge would finally
+justify authentication and stronger retention/deletion controls. Until then,
+accounts and multi-user workspaces are unnecessary.
+
+---
+
+## Phase 8 — One External Source and Demo Hardening
+
+### 8.1 Read-only GitHub knowledge import
+
+#### Question answered
+
+> Can ResolveAI acquire useful operational context from one real external system
+> through a bounded, auditable integration?
+
+#### Minimal implementation
+
+After generic document ingestion works, import selected Markdown documentation
+from one public GitHub repository at an explicit commit SHA. Preserve repository,
+path, and commit provenance. Do not add OAuth, private repositories, broad
+crawling, webhooks, autonomous code inspection, or multiple integrations.
+
+#### Success criterion
+
+A selected document is imported with commit provenance, embedded through the same
+runtime knowledge path, retrieved for a relevant incident, and removable without
+affecting the benchmark.
+
+#### New architectural pressure
+
+Private repositories, refresh, permissions, and moving branches would introduce
+authentication and synchronization complexity. They remain separate decisions.
+
+### 8.2 Reviewer journey and public-demo hardening
+
+#### Question answered
+
+> Can a reviewer quickly understand both the controlled benchmark and the proof
+> of runtime generality?
+
+#### Minimal implementation
+
+Present two clear paths: a prepared deterministic guided demo and an own-data
+investigation using the fixed real reasoner. Label the reasoner and data source,
+show truthful loading/provider/limit errors, and add one browser end-to-end test
+for each critical path.
+
+Apply minimum hobby-demo safeguards: schema versioning, strict request/document
+counts and text sizes, UTF-8 and supported-type validation, duplicate-ID and
+timestamp checks, rate/concurrency/model-budget limits, no request-body logging,
+explicit retention/deletion behavior, and untrusted-document prompt boundaries.
+Do not fetch arbitrary URLs or expose shell, SQL, mutating, or unrestricted tools.
+
+#### Success criterion
+
+A new reviewer can complete the guided flow, investigate one valid unseen bundle,
+understand which path is deterministic versus model-generated, and receive clear
+feedback for a limit or provider failure.
+
+#### New architectural pressure
+
+Only demonstrated reviewer confusion, abuse, or durability needs should motivate
+larger UI, authentication, background processing, or operational controls.
+
+### Expansion prioritization
+
+These classifications describe the next major product phase, not permanent bans:
+
+| Capability | Priority now | Reason |
+|---|---|---|
+| Runtime user-created incidents | High-value next step | Directly proves the system can accept previously unseen input. |
+| Persistent incidents and Evidence | Useful later | Justified by reuse, editing, or multiple runs, not by the first transient proof. |
+| Persistent investigation history | Useful later | Strengthens provenance once real runtime investigations exist. |
+| Generic `KnowledgeDocument` ingestion | High-value next step | Proves retrieval over user-supplied context rather than only nine authored runbooks. |
+| JSON incident bundle import | High-value next step | Smallest portable generalization seam and easier to validate than many integrations. |
+| `.log`, `.txt`, `.md`, and `.json` uploads | Useful later | Helpful after the normalized bundle/text path is stable; each parser expands the attack and validation surface. |
+| Real LLM reasoning in the public demo | High-value next step | The fake is an excellent deterministic test double but undersells runtime AI capability. |
+| Read-only GitHub integration | Useful later | High portfolio value only after the generic ingestion boundary exists. |
+| Authentication | Probably unnecessary | Transient or short-lived anonymous use does not justify SaaS account machinery. |
+| Multi-user workspaces | Actively harmful / overengineering | Adds tenancy complexity without strengthening the investigation story. |
+| Background embedding jobs | Probably unnecessary | Small bounded documents can be embedded synchronously and atomically. |
+| LangGraph or agentic investigation | Actively harmful / overengineering | The current sequential workflow has no justified branching/tool loop requirement. |
+| External observability integrations | Probably unnecessary | Generic input and one GitHub source have a better value-to-complexity ratio first. |
+| AWS/ECS deployment | Probably unnecessary | Northflank already answers the public-access question at the required cost. |
+| Terraform | Probably unnecessary | Infrastructure-as-code would currently describe optional infrastructure rather than solve a product limitation. |
+| Browser end-to-end tests | Useful later | One critical test per public path becomes valuable once the own-data path exists. |
+| Additional retrieval techniques | Probably unnecessary | Scope isolation and new evaluation must reveal a ranking limitation first. |
+| Additional model benchmarking | Useful later | Valuable after the generalized runtime contract and real-model baseline stabilize. |
+
+Do not build the next phase around a CRUD administration surface, accounts,
+workspaces, multiple integrations, queues, background workers, chunking, provider
+routing, silent model fallback, autonomous tools, remediation execution, a generic
+repository layer, or AWS for its own sake. Those additions would increase the
+technology list faster than they increase evidence of AI engineering capability.
+
+From a portfolio-review perspective, the capabilities that materially change the
+project are: accepting unseen incident data, reasoning beyond two hand-coded
+patterns, retrieving user-supplied knowledge without corpus leakage, evaluating
+that generalized path, and preserving inspectable provenance. One restrained
+GitHub import then demonstrates a real boundary. Additional cloud brands,
+frameworks, integrations, or SaaS boilerplate would mostly add nouns to the
+README unless a measured limitation first makes them necessary.
+
+---
+
+## Optional infrastructure expansion — AWS and Terraform
+
+AWS ECS/Fargate and Terraform remain useful portfolio exercises for container
+orchestration and infrastructure as code. They are optional because the current
+project's primary value is its AI engineering architecture and its immediate
+hosting constraint is zero ongoing cost.
+
+If pursued later, first understand and manually prove the AWS architecture, then
+encode it with Terraform. The optional exercise may cover:
+
+- ECR image storage;
+- ECS task and service behavior;
+- Fargate compute;
+- environment and secret delivery;
+- Terraform resources, variables, outputs, state, plan, and apply.
 
 A useful mental model is:
 
@@ -660,9 +942,8 @@ Terraform representation
 reproducible infrastructure
 ```
 
-Do not create Terraform modules merely for architectural appearance.
-
-Extract modules only when repetition or reuse creates a concrete need.
+Do not create Terraform modules merely for architectural appearance. Extract
+modules only when repetition or reuse creates a concrete need.
 
 ---
 
@@ -849,13 +1130,15 @@ It is preferred here over Jenkins because the project is intended to be a public
 
 ---
 
-# AWS ECS + Fargate
+# Optional AWS ECS + Fargate
 
 ECS answers:
 
 > How do I run and manage my application containers?
 
-Fargate removes the need to provision and maintain EC2 container hosts.
+Fargate removes the need to provision and maintain EC2 container hosts. It is an
+optional future infrastructure exercise rather than the current deployment
+requirement.
 
 This allows the project to focus first on:
 
@@ -869,7 +1152,7 @@ without adding server administration.
 
 ---
 
-# ECR
+# Optional ECR
 
 ECR answers:
 
@@ -889,7 +1172,7 @@ ECS/Fargate
 
 ---
 
-# Terraform
+# Optional Terraform
 
 Terraform answers:
 
@@ -897,7 +1180,8 @@ Terraform answers:
 
 It should describe infrastructure that is already conceptually understood.
 
-Terraform is therefore intentionally the final step of Phase 6.
+Terraform should therefore follow a manually understood AWS architecture if the
+optional infrastructure expansion is pursued.
 
 ---
 

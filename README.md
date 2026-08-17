@@ -1,12 +1,12 @@
 # ResolveAI
 
-ResolveAI is an AI incident investigation copilot built entirely with synthetic
-operational data. The reviewer-facing API investigates synthetic connection-pool
-and certificate-expiration incidents, reports when available evidence is
+ResolveAI is an AI incident investigation copilot whose current public runtime
+uses deliberately constructed synthetic operational data. The reviewer-facing
+API investigates three prepared incidents, reports when available evidence is
 insufficient, and retrieves related runbook knowledge from PostgreSQL. The API
-defaults to an evidence-only deterministic fake, while the frozen benchmark can
-run the structured GPT-5.6 Luna reasoner through direct OpenAI or OpenRouter
-access. Retrieved similarity is neither causal evidence nor diagnosis
+defaults to an evidence-only deterministic fake, while the frozen ten-case
+benchmark can run the structured GPT-5.6 Luna reasoner through direct OpenAI or
+OpenRouter access. Retrieved similarity is neither causal evidence nor diagnosis
 confidence.
 
 ## Run locally
@@ -36,6 +36,48 @@ curl -X POST http://127.0.0.1:8000/incidents/INC-001/investigate
 curl -X POST http://127.0.0.1:8000/incidents/INC-002/investigate
 curl -X POST http://127.0.0.1:8000/incidents/INC-003/investigate
 ```
+
+Investigate one transient runtime bundle:
+
+```bash
+curl -X POST http://127.0.0.1:8000/runtime/investigate \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "schema_version": 1,
+    "incident": {
+      "id": "USER-INC-901",
+      "title": "Checkout requests timing out",
+      "description": "A previously unseen checkout service is degraded.",
+      "service": "checkout-runtime-service",
+      "started_at": "2026-08-17T09:00:00Z"
+    },
+    "evidence": [
+      {
+        "id": "USER-DEP-901:database_connection_pool_size",
+        "source": "deployment",
+        "kind": "configuration_change",
+        "observed_at": "2026-08-17T08:55:00Z",
+        "summary": "A deployment reduced the database connection pool.",
+        "details": {
+          "setting": "database_connection_pool_size",
+          "previous_value": 30,
+          "new_value": 6
+        }
+      },
+      {
+        "id": "USER-LOG-901",
+        "source": "log",
+        "kind": "database_connection_timeout",
+        "observed_at": "2026-08-17T09:00:10Z",
+        "summary": "Checkout timed out while acquiring a database connection.",
+        "details": {}
+      }
+    ]
+  }'
+```
+
+The runtime bundle is validated, investigated, returned, and discarded. It is
+not inserted into the fixture set or PostgreSQL.
 
 ### Enable local console traces
 
@@ -144,10 +186,11 @@ are no background jobs, workflow events, or concurrent investigation stages.
 
 | Boundary | Current function | Behavior and failure boundary |
 |---|---|---|
-| HTTP request | `investigate_incident_endpoint()` in `resolve_ai/api.py` | Loads the requested context, requires `DATABASE_URL`, and returns the existing 404 for an unknown incident. Unexpected workflow failures propagate to FastAPI. |
-| Incident/context loading | `get_incident_context()` in `resolve_ai/fixtures.py` | Copies an in-memory synthetic `IncidentContext`; it has no external dependency. |
-| Evidence collection | `inspect_logs()` and `inspect_deployments()` in `resolve_ai/investigation.py` | Select and normalize fixture records into ordered `Evidence` values using pure Python. |
-| Retrieval-query construction | `build_runbook_query()` in `resolve_ai/investigation.py` | Deterministically combines incident context and Evidence summaries. |
+| HTTP request | prepared and runtime endpoints in `resolve_ai/api.py` | Loads a fixture by ID or validates one versioned runtime bundle, requires `DATABASE_URL`, and propagates unexpected workflow failures. |
+| Input adaptation | `get_incident_context()` or `RuntimeIncidentBundle.to_domain()` | Copies a frozen fixture context or converts the bounded runtime DTO into one `Incident` and ordered `Evidence[]`. Runtime input is not stored. |
+| Evidence collection | `inspect_logs()` and `inspect_deployments()` in `resolve_ai/investigation.py` | Select and normalize fixture records. Runtime bundles already supply normalized Evidence and do not mutate the fixture collector boundary. |
+| Shared orchestration | `investigate_evidence()` in `resolve_ai/investigation.py` | Copies the domain input and runs the same retrieval, reasoning, citation-verification, and result path for both adapters. |
+| Retrieval-query construction | `build_runbook_query()` in `resolve_ai/investigation.py` | Deterministically combines the incident and Evidence summaries. |
 | Semantic retrieval | `semantic_search_runbooks()` in `resolve_ai/retrieval.py` | Generates one query embedding, performs a synchronous PostgreSQL/pgvector Top-3 search, and returns ordered `RetrievedRunbook` values. Embedding, database, SQL, and result-validation errors propagate. |
 | Hypothesis generation | Selected `HypothesisGenerator` | Runs the local deterministic fake by default or a synchronous remote model call in an evaluator/manual path. Only `InsufficientEvidenceError` represents a normal inconclusive outcome. |
 | Inconclusive handling | `_build_inconclusive_result()` in `resolve_ai/investigation.py` | Returns the collected Evidence and retrieved reference knowledge with `diagnosis: null`. |
@@ -166,10 +209,9 @@ even though its duration is negligible.
 ```text
 POST /incidents/{incident_id}/investigate
 → load IncidentContext from synthetic fixtures
-→ read DATABASE_URL
-→ investigate_incident()
-   → inspect logs and deployments
-   → collect ordered Evidence
+→ inspect logs and deployments into ordered Evidence
+→ investigate_evidence()
+   → read normalized Incident and Evidence
    → build deterministic retrieval query
    → generate query embedding
    → query PostgreSQL/pgvector for semantic Top-3
@@ -182,6 +224,17 @@ POST /incidents/{incident_id}/investigate
           → build diagnosed InvestigationResult
 → FastAPI validates and serializes the result
 → JSON response
+```
+
+The runtime adapter joins the same flow after normalization:
+
+```text
+POST /runtime/investigate
+→ validate schema version, sizes, IDs, timestamps, and supported field types
+→ adapt RuntimeIncidentBundle into Incident + Evidence[]
+→ investigate_evidence()
+→ return diagnosed or inconclusive InvestigationResult
+→ discard the request data
 ```
 
 ### 1. The API receives an incident ID
@@ -768,8 +821,12 @@ question requiring those additions.
 > Span granularity should increase only when an existing span becomes too coarse
 > to answer a demonstrated operational question.
 
-Phase 3, Phase 4, Phase 5, and Phase 6.1 are complete. The first Phase 6.2 CI
-slice is implemented locally and awaits its first successful GitHub Actions run.
+Phases 3 through 6 and the local Phase 7.1 implementation are complete.
+ResolveAI's CI passes on GitHub-hosted runners, and its Phase 6 Northflank
+deployment passed direct and browser-level end-to-end verification. Phase 7.1
+adds a locally verified transient runtime-bundle path; it has not yet been
+deployed to Northflank. Phase 7.2 — controlled real-model runtime reasoning — is
+next and has not started.
 
 ## Phase 6.2 — Continuous integration
 
@@ -787,11 +844,197 @@ The frontend job uses Node 24 and the pnpm 11.21.0 version declared in
 TypeScript and ESLint, and creates the Next.js production build. The build
 compiles the API rewrite but does not require FastAPI to be running.
 
+Local checks first established that the commands work in the developer
+environment. The successful GitHub-hosted `backend` and `frontend` jobs then
+confirmed that the workflow can reproduce those checks on clean external
+runners.
+
 This first slice deliberately has no dependency caches, service containers,
 real retrieval or model evaluation, browser end-to-end testing, Docker image
-verification or publishing, deployment, or version matrices. Local checks
-validate the workflow's commands and structure; Phase 6.2 remains open until the
-workflow itself executes successfully on GitHub.
+verification or publishing, deployment, or version matrices. None was required
+to automate the established deterministic application checks.
+
+## Phase 6.3 — Public portfolio deployment
+
+The immediate deployment goal changed from AWS ECS/Fargate and Terraform to a
+public hobby deployment with no ongoing hosting cost. AWS remains a useful
+optional infrastructure exercise, but it is not required to demonstrate the
+current ResolveAI application.
+
+The selected Sandbox topology is:
+
+```text
+Northflank project
+├── web       Next.js :3000, public HTTPS       (deployed and verified)
+├── api       FastAPI :8000, private            (deployed)
+└── database  PostgreSQL + pgvector, private    (ready)
+```
+
+Northflank was selected because its Sandbox allowance matches the current
+two-service and one-database architecture, supports the existing Dockerfiles,
+provides private project networking, and keeps the services running without an
+idle-sleep cycle. The environment remains a portfolio Sandbox rather than a
+production service with an uptime guarantee.
+
+### 6.3.1 — Sandbox confirmation
+
+The project was created on the free Northflank Sandbox plan. The intended
+topology fits its two service slots and one database addon without introducing a
+paid resource. Each deployment slice remains independently verifiable before
+the next resource is added.
+
+### 6.3.2 — PostgreSQL and pgvector
+
+A private PostgreSQL addon was provisioned and initialized deliberately rather
+than through an always-running setup service. The existing `database/init.sql`
+enabled `vector`, created the schema and indexes, and inserted or updated the
+nine frozen runbooks. The existing explicit FastEmbed population command stored
+all nine 384-dimensional document embeddings. No OpenAI or OpenRouter call was
+used during initialization.
+
+The database remains private to the Northflank project. Runtime workloads use
+the standard application connection string; administrator credentials are
+reserved for initialization and maintenance.
+
+### 6.3.3 — Private FastAPI service
+
+Northflank builds the API from the repository-root `Dockerfile` and runs its
+existing Uvicorn command on `0.0.0.0:8000`. Port 8000 is private, so it has no
+reviewer-facing public endpoint. The database addon's standard `POSTGRES_URI` is
+inherited through a runtime secret with the alias `DATABASE_URL`; no credential
+is stored in source code.
+
+Container verification established:
+
+- the service could read all nine runbooks and nine stored embeddings;
+- `GET /incidents` returned successfully;
+- cold and warm `INC-001` investigations completed with the deterministic fake;
+- retrieval returned three runbooks;
+- the container did not restart or run out of memory.
+
+The 512 MiB Sandbox service reached approximately 440 MiB during cold FastEmbed
+initialization and then retained approximately 320 MiB for warm requests:
+
+```text
+cold peak          ~440 MiB / 512 MiB  (~86%)
+warm steady state  ~320 MiB / 512 MiB  (~63%)
+```
+
+The cold margin is narrow but acceptable for the intended single-reviewer demo.
+FastEmbed stays cached in the Python process, so the warm plateau is expected.
+Concurrent cold initialization is not an intended Sandbox workload. No extra
+workers, paid compute, keep-alive requests, or external model credentials were
+introduced.
+
+### 6.3.4 — Public Next.js and browser verification
+
+The production Next.js container is publicly available at
+`https://p01--web--2g46kqjy6mpk.code.run/` and uses
+`RESOLVEAI_API_URL=http://api:8000` for its server-side rewrite. Browser-level
+Chromium verification confirmed that all three incidents render, `INC-001`
+produces the diagnosed presentation with visually distinct collected Evidence,
+supporting Evidence, and retrieved reference knowledge, and `INC-003` produces
+the successful inconclusive presentation. The browser observed same-origin HTTP
+200 responses for the incident list and both investigation requests, with no
+failed requests, page errors, material console errors, layout overlap, or
+horizontal overflow. The optional `/favicon.ico` returns a non-material 404.
+
+Phase 6.3.4, Phase 6.3, and the Phase 6 productionization milestone are complete.
+
+## Phase 7.1 — Versioned runtime incident input
+
+The current source and local Compose application now expose two explicit paths:
+
+- the prepared `GET /incidents` and
+  `POST /incidents/{incident_id}/investigate` fixture flow;
+- `POST /runtime/investigate`, which accepts one transient version-1 bundle with
+  a caller-supplied incident and 1–50 normalized Evidence items.
+
+Runtime DTOs in `resolve_ai/runtime_input.py` are separate from fixture
+`IncidentContext` values. They reject unknown fields and schema versions,
+ambiguous timestamps, duplicate Evidence IDs, unsupported identifier shapes,
+oversized text/detail collections, and more than 50 observations. The adapter
+converts validated input to `Incident + Evidence[]`, and both fixture and runtime
+paths call the same `investigate_evidence()` orchestration.
+
+The Next.js interface provides a prepared guided-demo tab and a Runtime JSON
+tab. It includes an editable novel example, explains the current deterministic
+reasoner and transient retention behavior, presents diagnosed or inconclusive
+results with the existing Evidence/runbook semantics, and reports client JSON
+errors and server validation failures separately.
+
+The Phase 7.1 boundary remains deliberately narrow:
+
+- `GET /incidents` exposes three in-memory fixture incidents;
+- a local user may now submit new normalized incident data, but it is not stored;
+- PostgreSQL persists the frozen nine-runbook retrieval corpus and embeddings,
+  not runtime incidents or investigation history;
+- the default fake reasoner recognizes two deliberately programmed evidence
+  patterns;
+- real reasoners exist for manual evaluation, but the public API does not expose
+  them;
+- completed results are returned to the browser and are not persisted.
+
+The public Northflank deployment still runs the completed Phase 6 build and does
+not expose Phase 7.1 until a later deployment is deliberately performed.
+
+This is useful evaluation infrastructure, not evidence that arbitrary incidents
+already work. The next major architecture therefore separates two worlds:
+
+```text
+ResolveAI
+├── evaluation world
+│   ├── immutable synthetic incidents and ground truth
+│   ├── frozen retrieval cases and runbook corpus
+│   └── repeatable deterministic and real-model comparisons
+└── runtime world
+    ├── user-supplied Incident and Evidence
+    ├── scoped KnowledgeDocument ingestion and retrieval
+    ├── fixed server-side real reasoner
+    └── later: immutable InvestigationRun history
+```
+
+The evaluation fixtures, expected labels, case hashes, and benchmark corpus must
+remain immutable. Runtime data must never silently enter benchmark retrieval or
+change evaluation results. Both worlds should reuse the same investigation,
+retrieval, structured-output, and citation-verification logic through explicit
+input adapters, while benchmark-only taxonomies remain isolated.
+
+The implemented bundle has this essential shape:
+
+```json
+{
+  "schema_version": 1,
+  "incident": {},
+  "evidence": []
+}
+```
+
+Phase 7.1 validated and normalized a user-supplied incident and Evidence, then
+investigated novel IDs without changing fixtures or benchmark inputs. Runtime
+reasoning still uses the deterministic fake, so this slice proves generalized
+input—not generalized AI reasoning. Phase 7.2 must use one fixed server-side real
+model without silently falling back to fake reasoning.
+
+Runtime knowledge should initially use bounded text or Markdown documents, one
+embedding per document, synchronous FastEmbed generation, pgvector Top-3
+retrieval, and strict corpus scoping. Chunking, queues, reranking, hybrid search,
+query rewriting, a dedicated vector database, and background workers remain
+unjustified until measurements show a concrete need.
+
+The intended reviewer experience eventually has two explicit paths:
+
+```text
+Guided demo                         Runtime JSON
+prepared synthetic incident        versioned incident bundle
+deterministic and repeatable        deterministic fake in Phase 7.1
+fast architecture tour             proof of previously unseen input
+```
+
+The own-data path begins without accounts or durable retention. Phase 7.1 adds
+schema, size, count, duplicate-ID, timestamp, and supported-type validation.
+Rate, concurrency, model-budget, timeout, and explicit provider-error boundaries
+belong to Phase 7.2 when the public runtime introduces a real provider.
 
 ## Verify
 

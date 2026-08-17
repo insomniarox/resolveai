@@ -5,12 +5,13 @@ it translates an HTTP request into a call to our Python workflow, then translate
 the returned Pydantic model into JSON. The investigation itself remains in
 ``investigation.py`` so it can be understood and tested without running a server.
 
-The API has two operations:
+The API has three operations:
 
 * ``GET /incidents`` lets callers discover the available synthetic incidents.
 * ``POST /incidents/{incident_id}/investigate`` runs the investigation workflow.
+* ``POST /runtime/investigate`` accepts one transient versioned runtime bundle.
 
-Investigation request flow:
+Prepared-incident request flow:
 
 1. FastAPI extracts ``incident_id`` from the URL.
 2. The route loads synthetic operational data for that ID.
@@ -23,8 +24,9 @@ import os
 from fastapi import FastAPI, HTTPException, status
 
 from resolve_ai.fixtures import get_incident_context, list_incidents
-from resolve_ai.investigation import investigate_incident
+from resolve_ai.investigation import investigate_evidence, investigate_incident
 from resolve_ai.models import Incident, InvestigationResult
+from resolve_ai.runtime_input import RuntimeIncidentBundle
 from resolve_ai.telemetry import configure_console_tracing
 
 configure_console_tracing()
@@ -70,3 +72,20 @@ def investigate_incident_endpoint(incident_id: str) -> InvestigationResult:
         )
 
     return investigate_incident(context, database_url=_get_database_url())
+
+
+@app.post(
+    "/runtime/investigate",
+    response_model=InvestigationResult,
+    status_code=status.HTTP_200_OK,
+)
+def investigate_runtime_bundle_endpoint(
+    bundle: RuntimeIncidentBundle,
+) -> InvestigationResult:
+    """Investigate one validated bundle without storing it or changing fixtures."""
+    incident, evidence = bundle.to_domain()
+    return investigate_evidence(
+        incident=incident,
+        evidence=evidence,
+        database_url=_get_database_url(),
+    )
