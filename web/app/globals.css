@@ -224,6 +224,15 @@ h4 {
   font-size: 0.82rem;
 }
 
+.runtime-provider-error {
+  margin: 0;
+  border-radius: 8px;
+  padding: 0.75rem;
+  color: var(--red);
+  background: var(--red-soft);
+  font-size: 0.82rem;
+}
+
 .runtime-limit-note {
   border-radius: 8px;
   padding: 0.75rem;

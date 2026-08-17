@@ -5,10 +5,11 @@ it translates an HTTP request into a call to our Python workflow, then translate
 the returned Pydantic model into JSON. The investigation itself remains in
 ``investigation.py`` so it can be understood and tested without running a server.
 
-The API has three operations:
+The API has four operations:
 
 * ``GET /incidents`` lets callers discover the available synthetic incidents.
 * ``POST /incidents/{incident_id}/investigate`` runs the investigation workflow.
+* ``GET /runtime/reasoner`` discloses safe server-side model metadata.
 * ``POST /runtime/investigate`` accepts one transient versioned runtime bundle.
 
 Prepared-incident request flow:
@@ -20,13 +21,33 @@ Prepared-incident request flow:
 """
 
 import os
+from threading import BoundedSemaphore
 
 from fastapi import FastAPI, HTTPException, status
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    ContentFilterFinishReasonError,
+    LengthFinishReasonError,
+    PermissionDeniedError,
+    RateLimitError,
+)
+from pydantic import ValidationError
 
 from resolve_ai.fixtures import get_incident_context, list_incidents
-from resolve_ai.investigation import investigate_evidence, investigate_incident
-from resolve_ai.models import Incident, InvestigationResult
+from resolve_ai.investigation import (
+    UnknownEvidenceError,
+    investigate_evidence,
+    investigate_incident,
+)
+from resolve_ai.models import Incident, InvestigationResult, ReasonerMetadata
 from resolve_ai.runtime_input import RuntimeIncidentBundle
+from resolve_ai.runtime_reasoner import (
+    RuntimeReasonerConfigurationError,
+    get_runtime_reasoner,
+)
 from resolve_ai.telemetry import configure_console_tracing
 
 configure_console_tracing()
@@ -34,6 +55,7 @@ configure_console_tracing()
 # Uvicorn imports this application object from ``resolve_ai.api:app`` when the
 # development server starts. Creating it does not start a server by itself.
 app = FastAPI(title="ResolveAI", version="0.1.0")
+_runtime_reasoner_gate = BoundedSemaphore(value=1)
 
 
 def _get_database_url() -> str:
@@ -48,6 +70,18 @@ def _get_database_url() -> str:
 def list_incidents_endpoint() -> list[Incident]:
     """Return the incidents that callers can choose to investigate."""
     return list_incidents()
+
+
+@app.get("/runtime/reasoner", response_model=ReasonerMetadata)
+def get_runtime_reasoner_endpoint() -> ReasonerMetadata:
+    """Return safe metadata for the configured server-side runtime reasoner."""
+    try:
+        return get_runtime_reasoner().metadata
+    except RuntimeReasonerConfigurationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Runtime reasoning is not configured.",
+        ) from error
 
 
 @app.post(
@@ -83,9 +117,60 @@ def investigate_runtime_bundle_endpoint(
     bundle: RuntimeIncidentBundle,
 ) -> InvestigationResult:
     """Investigate one validated bundle without storing it or changing fixtures."""
+    try:
+        reasoner = get_runtime_reasoner()
+    except RuntimeReasonerConfigurationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Runtime reasoning is not configured.",
+        ) from error
+
+    database_url = _get_database_url()
     incident, evidence = bundle.to_domain()
-    return investigate_evidence(
-        incident=incident,
-        evidence=evidence,
-        database_url=_get_database_url(),
-    )
+    if not _runtime_reasoner_gate.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Runtime reasoning is busy. Please retry shortly.",
+        )
+
+    try:
+        return investigate_evidence(
+            incident=incident,
+            evidence=evidence,
+            database_url=database_url,
+            hypothesis_generator=reasoner.generate,
+            reasoner=reasoner.metadata,
+        )
+    except APITimeoutError as error:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="The runtime reasoner timed out. Please retry.",
+        ) from error
+    except UnknownEvidenceError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The runtime reasoner returned invalid evidence citations.",
+        ) from error
+    except (
+        ValidationError,
+        RuntimeError,
+        LengthFinishReasonError,
+        ContentFilterFinishReasonError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The runtime reasoner returned an invalid response.",
+        ) from error
+    except (
+        AuthenticationError,
+        PermissionDeniedError,
+        RateLimitError,
+        APIConnectionError,
+        APIStatusError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The runtime reasoner is temporarily unavailable.",
+        ) from error
+    finally:
+        _runtime_reasoner_gate.release()

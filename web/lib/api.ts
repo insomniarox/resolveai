@@ -5,8 +5,8 @@ import type {
   EvidenceSource,
   Incident,
   InvestigationResult,
+  ReasonerMetadata,
   RetrievedRunbook,
-  RootCauseLabel,
 } from "@/lib/types";
 
 export const UNEXPECTED_RESPONSE_MESSAGE =
@@ -43,15 +43,6 @@ const evidenceKinds = new Set<EvidenceKind>([
   "http_request_failed",
   "configuration_change",
 ]);
-const rootCauseLabels = new Set<RootCauseLabel>([
-  "connection_pool_exhaustion",
-  "expired_client_certificate",
-  "database_lock_contention",
-  "upstream_tls_identity_mismatch",
-  "notification_provider_outage",
-  "notification_worker_backlog",
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -116,7 +107,7 @@ function isDiagnosis(value: unknown): value is Diagnosis {
   return (
     isRecord(value) &&
     typeof value.root_cause_label === "string" &&
-    rootCauseLabels.has(value.root_cause_label as RootCauseLabel) &&
+    /^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(value.root_cause_label) &&
     typeof value.probable_root_cause === "string" &&
     typeof value.confidence === "number" &&
     value.confidence >= 0 &&
@@ -128,6 +119,16 @@ function isDiagnosis(value: unknown): value is Diagnosis {
   );
 }
 
+function isReasonerMetadata(value: unknown): value is ReasonerMetadata {
+  return (
+    isRecord(value) &&
+    typeof value.provider === "string" &&
+    value.provider.length > 0 &&
+    typeof value.model === "string" &&
+    value.model.length > 0
+  );
+}
+
 function isInvestigationResult(value: unknown): value is InvestigationResult {
   if (
     !isRecord(value) ||
@@ -135,7 +136,8 @@ function isInvestigationResult(value: unknown): value is InvestigationResult {
     !Array.isArray(value.evidence) ||
     !value.evidence.every(isEvidence) ||
     !Array.isArray(value.retrieved_runbooks) ||
-    !value.retrieved_runbooks.every(isRetrievedRunbook)
+    !value.retrieved_runbooks.every(isRetrievedRunbook) ||
+    !isReasonerMetadata(value.reasoner)
   ) {
     return false;
   }
@@ -236,6 +238,14 @@ export async function investigateRuntimeBundle(
     body: JSON.stringify(bundle),
   });
   if (!isInvestigationResult(value)) {
+    throw new UnexpectedResponseError();
+  }
+  return value;
+}
+
+export async function fetchRuntimeReasoner(): Promise<ReasonerMetadata> {
+  const value = await requestJson("/api/runtime/reasoner", { cache: "no-store" });
+  if (!isReasonerMetadata(value)) {
     throw new UnexpectedResponseError();
   }
   return value;

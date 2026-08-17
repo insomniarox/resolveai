@@ -28,15 +28,16 @@ complete.
 Phase 6.3.4 — Public Next.js deployment and browser-level reviewer-flow
 verification are complete.
 
-Phase 7.1 — Versioned runtime incident input is complete locally and has not yet
-been deployed to Northflank.
+Phase 7.1 — Versioned runtime incident input is complete, deployed to Northflank,
+and browser-smoke verified.
 
-Phase 7.2 — Controlled real-model runtime reasoning is the next phase. It has
-not started.
+Phase 7.2 — Controlled real-model runtime reasoning is implemented and verified
+locally. Its Northflank secret configuration, deployment, and live-provider smoke
+test remain pending.
 
-The post-deployment product robustness review is complete. Its first
-runtime-generalization slice is implemented; later Phase 7 and 8 work has not
-started.
+The post-deployment product robustness review is complete. Runtime input and
+controlled live reasoning are implemented; later knowledge ingestion,
+persistence, accounts, and Phase 8 work have not started.
 
 ## Completed phases
 
@@ -939,12 +940,62 @@ Phase 7.1 answers its learning question:
 > A previously unseen, versioned incident bundle can pass through ResolveAI's
 > existing investigation workflow without becoming a fixture or persisted row.
 
-This proves generalized input, not generalized reasoning. The deterministic
-fake still recognizes only two patterns, and the runtime output taxonomy remains
-benchmark-shaped. Phase 7.2 owns the real-model/runtime-contract pressure.
+This proved generalized input, not generalized reasoning. At Phase 7.1 close the
+deterministic fake still recognized only two patterns and the runtime output
+taxonomy remained benchmark-shaped. Phase 7.2 owns that model/runtime pressure.
 
-Phase 7.1 exit status: complete locally. The Northflank deployment remains on
-the Phase 6 build until a later deliberate deployment.
+The pushed Phase 7.1 build passed GitHub Actions and deployed through Northflank.
+Public browser smoke verification repeated the guided diagnosed and inconclusive
+flows, the runtime diagnosed and inconclusive flows, input-validation feedback,
+same-origin API routing, and a 390px layout check. No material regression was
+found; the optional favicon 404 remains the only non-material asset error.
+
+Phase 7.1 exit status: complete and publicly verified.
+
+## Phase 7.2 — Controlled real-model runtime reasoning
+
+Phase 7.2 keeps the prepared guided demo on `evidence-only-fake-v1` and routes
+only `POST /runtime/investigate` through one explicit server-side provider. The
+`RESOLVEAI_RUNTIME_PROVIDER` environment value selects `openrouter` or `openai`;
+there is no browser provider dropdown, user-supplied key, automatic routing,
+cross-provider retry, or deterministic fallback. The intended production value
+is `openrouter` with a capped `OPENROUTER_API_KEY`.
+
+Both providers use the Responses API and GPT-5.6 Luna through the existing
+OpenAI-compatible adapter. Requests use structured output, `medium` reasoning,
+a 4,000-token output ceiling, a 30-second client timeout, zero SDK retries, and
+one process-local concurrent live request. Stable public failures distinguish a
+busy reasoner (429), invalid model output or citations (502), unavailable or
+misconfigured inference (503), and provider timeout (504). Provider details and
+credentials never appear in error responses, and failures never invoke the fake.
+
+Runtime decisions now accept a bounded lowercase snake-case label instead of
+the evaluator's six-value `RootCauseLabel`. The frozen benchmark retains that
+enum and explicitly projects application output back into it for scoring, so an
+outside-taxonomy runtime cause is an ordinary benchmark mismatch rather than a
+schema failure. Every investigation response also includes safe `provider` and
+`model` metadata.
+
+`GET /runtime/reasoner` exposes only that safe metadata. The Runtime JSON UI
+shows the active provider/model, explains that input reaches an external
+provider and is not persisted by ResolveAI, warns against submitting secrets,
+and keeps the guided path visually and behaviorally deterministic.
+
+The deterministic suite makes no provider call. An opt-in spend-bearing runtime
+evaluation covers lock contention, a provider outage, an outside-taxonomy DNS
+failure, and insufficient evidence for three repetitions by default:
+
+```bash
+RESOLVEAI_RUNTIME_PROVIDER=openrouter \
+OPENROUTER_API_KEY=... \
+uv run python -m evals.evaluate_runtime_reasoning \
+  --database-url postgresql://resolveai:resolveai@localhost:5432/resolveai \
+  --repeats 3
+```
+
+Local implementation verification passes. Deployment remains deliberately
+pending until a capped OpenRouter key and `RESOLVEAI_RUNTIME_PROVIDER=openrouter`
+are configured on the private API service.
 
 ## Product robustness design decision
 
@@ -989,12 +1040,12 @@ retrieval implementation, structured-output validation, and citation verificatio
 through explicit adapters. Benchmark-specific closed taxonomies, including the
 current root-cause labels, must not constrain arbitrary runtime diagnoses.
 
-The highest-value next proof was a transient, versioned JSON incident bundle.
-Phase 7.1 now supplies that proof without building CRUD, accounts, or a generic
-persistence layer. Controlled real-model runtime reasoning is next, followed by
-runtime `KnowledgeDocument` ingestion as a separate measured slice. Only after
-those paths prove useful should incidents, Evidence, and immutable investigation
-snapshots become persisted product entities.
+The highest-value first proof was a transient, versioned JSON incident bundle.
+Phase 7.1 supplied it without building CRUD, accounts, or a generic persistence
+layer. Phase 7.2 now supplies controlled real-model runtime reasoning. Runtime
+`KnowledgeDocument` ingestion remains the next separate measured slice. Only
+after those paths prove useful should incidents, Evidence, and immutable
+investigation snapshots become persisted product entities.
 
 The public demo should eventually expose two honest paths:
 
@@ -1002,12 +1053,12 @@ The public demo should eventually expose two honest paths:
 - an own-data path using one fixed server-side real model with disclosed model
   metadata, strict input/request/cost limits, and no silent fake fallback.
 
-No application, database, or deployment implementation was performed as part of
-this design review.
+The design review itself made no application, database, or deployment changes;
+the Phase 7.1 and local Phase 7.2 implementations followed as separate slices.
 
 ## Verification status
 
-- 67 deterministic tests pass without a model API call.
+- 80 deterministic tests pass without a model API call.
 - 2 PostgreSQL integration tests are deliberately skipped in the ordinary run
   because one resets all stored embeddings to exercise population behavior.
 - Local and Northflank PostgreSQL contain all nine runbooks with no missing
@@ -1029,19 +1080,20 @@ this design review.
 - Browser verification found no failed requests, page errors, material console
   errors, rendering overlap, or horizontal overflow. The optional
   `/favicon.ico` returns a non-material 404.
-- The local Phase 7.1 runtime path passed Docker-backed browser verification at
-  desktop and 390px widths with same-origin API traffic and clear invalid-input
-  feedback.
+- The public Phase 7.1 runtime path passed browser verification at desktop and
+  390px widths with same-origin API traffic and clear invalid-input feedback.
+- The local Phase 7.2 Python suite, frontend type/lint checks, and production
+  frontend build pass without a live provider call.
+- Rebuilt Phase 7.2 Compose images passed same-origin metadata and guided API
+  checks plus browser verification of provider/privacy copy and 390px overflow.
 
 ## Next phase
 
-Begin Phase 7.2 — Controlled real-model runtime reasoning as a separate
-implementation slice. Its learning question is:
+Deploy and smoke-test Phase 7.2 after configuring the capped OpenRouter secret.
+Its learning question remains:
 
 > Can the runtime reason beyond the fake's two programmed evidence patterns?
 
-Keep the prepared guided demo deterministic. Select one fixed runtime provider
-and model on the server, disclose its metadata, add explicit cost/concurrency/
-timeout/error boundaries, and never silently fall back to the fake. Phase 7.3
-knowledge ingestion, persistence, accounts, and optional infrastructure remain
-out of scope for that slice.
+Once live evaluation answers that question, plan Phase 7.3 runtime knowledge
+ingestion. Persistence, accounts, and optional infrastructure remain out of
+scope until those smaller runtime proofs justify them.

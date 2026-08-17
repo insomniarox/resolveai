@@ -1,0 +1,126 @@
+[
+  {
+    "id": "runtime-lock-contention",
+    "expected_status": "diagnosed",
+    "expected_root_cause_label": "database_lock_contention",
+    "bundle": {
+      "schema_version": 1,
+      "incident": {
+        "id": "RUNTIME-EVAL-001",
+        "title": "Payments are stalled on database writes",
+        "description": "Write requests block until the application timeout expires.",
+        "service": "payments-runtime",
+        "started_at": "2026-08-17T10:00:00Z"
+      },
+      "evidence": [
+        {
+          "id": "RUNTIME-EVAL-001-LOG-1",
+          "source": "log",
+          "kind": "database_lock_wait",
+          "observed_at": "2026-08-17T10:00:05Z",
+          "summary": "Multiple payment writes are waiting on the same row lock.",
+          "details": {"wait_seconds": 28, "blocked_table": "payment_attempts"}
+        },
+        {
+          "id": "RUNTIME-EVAL-001-LOG-2",
+          "source": "log",
+          "kind": "database_transaction_state",
+          "observed_at": "2026-08-17T10:00:06Z",
+          "summary": "One long-running transaction holds the blocking lock.",
+          "details": {"transaction_age_seconds": 91, "state": "active"}
+        }
+      ]
+    }
+  },
+  {
+    "id": "runtime-provider-outage",
+    "expected_status": "diagnosed",
+    "expected_root_cause_label": "notification_provider_outage",
+    "bundle": {
+      "schema_version": 1,
+      "incident": {
+        "id": "RUNTIME-EVAL-002",
+        "title": "Notifications remain queued",
+        "description": "Workers are healthy but delivery attempts fail at the provider boundary.",
+        "service": "notifications-runtime",
+        "started_at": "2026-08-17T11:00:00Z"
+      },
+      "evidence": [
+        {
+          "id": "RUNTIME-EVAL-002-METRIC-1",
+          "source": "log",
+          "kind": "notification_worker_metrics",
+          "observed_at": "2026-08-17T11:00:05Z",
+          "summary": "All notification workers are healthy and polling normally.",
+          "details": {"healthy_workers": 8, "expected_workers": 8}
+        },
+        {
+          "id": "RUNTIME-EVAL-002-LOG-1",
+          "source": "log",
+          "kind": "upstream_request_failed",
+          "observed_at": "2026-08-17T11:00:06Z",
+          "summary": "The external notification provider returns HTTP 503 for every delivery attempt.",
+          "details": {"status_code": 503, "provider": "synthetic-mail"}
+        }
+      ]
+    }
+  },
+  {
+    "id": "runtime-open-taxonomy-dns",
+    "expected_status": "diagnosed",
+    "expected_root_cause_label": "upstream_dns_resolution_failure",
+    "bundle": {
+      "schema_version": 1,
+      "incident": {
+        "id": "RUNTIME-EVAL-003",
+        "title": "Inventory calls cannot reach their upstream",
+        "description": "The service fails before opening a network connection.",
+        "service": "checkout-runtime",
+        "started_at": "2026-08-17T12:00:00Z"
+      },
+      "evidence": [
+        {
+          "id": "RUNTIME-EVAL-003-HEALTH-1",
+          "source": "log",
+          "kind": "upstream_health_check",
+          "observed_at": "2026-08-17T12:00:02Z",
+          "summary": "Health checks fail because inventory.internal cannot be resolved by DNS.",
+          "details": {"host": "inventory.internal", "error": "name_not_resolved"}
+        },
+        {
+          "id": "RUNTIME-EVAL-003-LOG-1",
+          "source": "log",
+          "kind": "upstream_request_failed",
+          "observed_at": "2026-08-17T12:00:03Z",
+          "summary": "Requests abort with a resolver error before any TLS handshake.",
+          "details": {"host": "inventory.internal", "stage": "dns"}
+        }
+      ]
+    }
+  },
+  {
+    "id": "runtime-insufficient-evidence",
+    "expected_status": "inconclusive",
+    "expected_root_cause_label": null,
+    "bundle": {
+      "schema_version": 1,
+      "incident": {
+        "id": "RUNTIME-EVAL-004",
+        "title": "A single request returned HTTP 500",
+        "description": "No correlated operational observations are available yet.",
+        "service": "orders-runtime",
+        "started_at": "2026-08-17T13:00:00Z"
+      },
+      "evidence": [
+        {
+          "id": "RUNTIME-EVAL-004-LOG-1",
+          "source": "log",
+          "kind": "http_request_failed",
+          "observed_at": "2026-08-17T13:00:01Z",
+          "summary": "One GET /orders request returned HTTP 500 without an error detail.",
+          "details": {"status_code": 500}
+        }
+      ]
+    }
+  }
+]

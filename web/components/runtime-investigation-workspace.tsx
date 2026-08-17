@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { InvestigationResult } from "@/components/investigation-result";
 import {
   ApiRequestError,
   UnexpectedResponseError,
+  fetchRuntimeReasoner,
   investigateRuntimeBundle,
 } from "@/lib/api";
 import type {
   InvestigationResult as InvestigationResultData,
+  ReasonerMetadata,
   RuntimeIncidentBundle,
 } from "@/lib/types";
 
@@ -76,6 +78,22 @@ export function RuntimeInvestigationWorkspace() {
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [result, setResult] = useState<InvestigationResultData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reasoner, setReasoner] = useState<ReasonerMetadata | null>(null);
+  const [reasonerError, setReasonerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetchRuntimeReasoner()
+      .then((metadata) => {
+        if (active) setReasoner(metadata);
+      })
+      .catch((caught: unknown) => {
+        if (active) setReasonerError(describeError(caught));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function runInvestigation() {
     if (requestState === "loading") return;
@@ -110,7 +128,9 @@ export function RuntimeInvestigationWorkspace() {
             <p className="section-kicker">Transient own-data path</p>
             <h2 id="runtime-input-title">Versioned incident bundle</h2>
           </div>
-          <span className="count-summary">Not saved</span>
+          <span className="count-summary">
+            {reasoner ? `${reasoner.provider} · ${reasoner.model}` : "Checking reasoner"}
+          </span>
         </div>
 
         <form
@@ -134,10 +154,16 @@ export function RuntimeInvestigationWorkspace() {
             value={bundleText}
           />
           <p className="runtime-limit-note" id="runtime-limit-note">
-            Phase 7.1 still uses the disclosed deterministic reasoner. Unknown
-            patterns return an honest inconclusive result; no runtime input is
-            persisted.
+            This path sends the bundle to the displayed external inference
+            provider. ResolveAI does not persist the input or result; the provider
+            may process or retain data under its own policy. Do not submit secrets
+            or confidential production data.
           </p>
+          {reasonerError && (
+            <p className="runtime-provider-error" role="status">
+              Provider status unavailable: {reasonerError}
+            </p>
+          )}
           <div className="runtime-actions">
             <button
               className="primary-button"
@@ -170,7 +196,10 @@ export function RuntimeInvestigationWorkspace() {
         {requestState === "loading" && (
           <div className="request-message">
             <strong>ResolveAI is investigating the runtime bundle.</strong>
-            <p>The final structured result will appear when the request completes.</p>
+            <p>
+              The bounded live-model request may take several seconds. The final
+              structured result will appear when it completes.
+            </p>
           </div>
         )}
 
@@ -189,7 +218,9 @@ export function RuntimeInvestigationWorkspace() {
                 <p className="section-kicker">Transient result</p>
                 <h2>Result for {result.incident_id}</h2>
               </div>
-              <span className="count-summary">Not persisted</span>
+              <span className="count-summary">
+                {result.reasoner.provider} · {result.reasoner.model}
+              </span>
             </div>
             <InvestigationResult result={result} />
           </>

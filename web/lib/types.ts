@@ -13,14 +13,6 @@ export type EvidenceKind =
   | "http_request_failed"
   | "configuration_change";
 
-export type RootCauseLabel =
-  | "connection_pool_exhaustion"
-  | "expired_client_certificate"
-  | "database_lock_contention"
-  | "upstream_tls_identity_mismatch"
-  | "notification_provider_outage"
-  | "notification_worker_backlog";
-
 export interface Incident {
   id: string;
   title: string;
@@ -53,7 +45,7 @@ export interface RetrievedRunbook {
 }
 
 export interface Diagnosis {
-  root_cause_label: RootCauseLabel;
+  root_cause_label: string;
   probable_root_cause: string;
   confidence: number;
   recommended_remediation: string;
@@ -61,10 +53,16 @@ export interface Diagnosis {
   supporting_evidence_ids: string[];
 }
 
+export interface ReasonerMetadata {
+  provider: string;
+  model: string;
+}
+
 interface InvestigationResultBase {
   incident_id: string;
   evidence: Evidence[];
   retrieved_runbooks: RetrievedRunbook[];
+  reasoner: ReasonerMetadata;
 }
 
 export interface DiagnosedInvestigationResult
