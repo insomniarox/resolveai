@@ -15,10 +15,15 @@ from resolve_ai.models import (
     RootCauseLabel,
 )
 from resolve_ai.openai_model import (
+    MODEL_MAX_OUTPUT_TOKENS,
+    MODEL_REASONING_EFFORT,
+    MODEL_TIMEOUT_SECONDS,
     OPENAI_REASONING_MODEL,
     OpenAIReasoningDecision,
+    RuntimeReasoningDecision,
     build_openai_reasoning_input,
     generate_openai_hypothesis,
+    generate_openai_runtime_hypothesis,
 )
 from resolve_ai.reasoning import InsufficientEvidenceError
 
@@ -103,6 +108,8 @@ def test_openai_reasoner_returns_structured_hypothesis() -> None:
     ]
     assert client.responses.call["model"] == OPENAI_REASONING_MODEL
     assert client.responses.call["text_format"] is OpenAIReasoningDecision
+    assert client.responses.call["reasoning"] == {"effort": MODEL_REASONING_EFFORT}
+    assert client.responses.call["max_output_tokens"] == MODEL_MAX_OUTPUT_TOKENS
     assert client.responses.call["input"][0]["role"] == "system"
     assert "runbook IDs" in client.responses.call["input"][0]["content"]
 
@@ -118,7 +125,7 @@ def test_default_openai_client_loads_project_dotenv(monkeypatch) -> None:
         recommended_remediation="Restore the previous pool size.",
     )
     client = FakeOpenAIClient(decision)
-    calls: list[str] = []
+    calls: list[object] = []
 
     monkeypatch.setattr(
         openai_model,
@@ -128,12 +135,42 @@ def test_default_openai_client_loads_project_dotenv(monkeypatch) -> None:
     monkeypatch.setattr(
         openai_model,
         "OpenAI",
-        lambda: calls.append("OpenAI") or client,
+        lambda **kwargs: calls.append(kwargs) or client,
     )
 
     generate_openai_hypothesis(incident, evidence, runbooks)
 
-    assert calls == ["load_dotenv", "OpenAI"]
+    assert calls == [
+        "load_dotenv",
+        {"timeout": MODEL_TIMEOUT_SECONDS, "max_retries": 0},
+    ]
+
+
+def test_runtime_reasoner_accepts_a_normalized_label_outside_benchmark() -> None:
+    incident, evidence, runbooks = _reasoning_inputs()
+    decision = RuntimeReasoningDecision(
+        status=InvestigationStatus.DIAGNOSED,
+        root_cause_label="dns_cache_poisoning",
+        probable_root_cause="A stale poisoned DNS cache routed traffic incorrectly.",
+        cited_evidence_ids=["LOG-001"],
+        confidence=0.76,
+        recommended_remediation="Flush and repopulate the resolver cache.",
+    )
+    client = FakeOpenAIClient(decision)
+
+    hypothesis = generate_openai_runtime_hypothesis(
+        incident,
+        evidence,
+        runbooks,
+        client=client,
+    )
+
+    assert hypothesis.root_cause_label == "dns_cache_poisoning"
+    assert client.responses.call["text_format"] is RuntimeReasoningDecision
+    assert (
+        "do not limit it to a preset taxonomy"
+        in client.responses.call["input"][0]["content"]
+    )
 
 
 def test_openai_reasoner_translates_inconclusive_decision() -> None:

@@ -17,6 +17,9 @@ services:
     environment:
       # Compose service names are DNS names on the shared default network.
       DATABASE_URL: postgresql://resolveai:resolveai@database:5432/resolveai
+      RESOLVEAI_RUNTIME_PROVIDER: ${RESOLVEAI_RUNTIME_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

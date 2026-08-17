@@ -14,12 +14,16 @@ from resolve_ai.models import (
     InvestigationStatus,
     RetrievedRunbook,
     RootCauseLabel,
+    RootCauseName,
 )
 from resolve_ai.reasoning import InsufficientEvidenceError
 
 OPENAI_REASONING_MODEL = "gpt-5.6-luna"
+MODEL_REASONING_EFFORT = "medium"
+MODEL_MAX_OUTPUT_TOKENS = 4_000
+MODEL_TIMEOUT_SECONDS = 30.0
 
-_SYSTEM_INSTRUCTIONS = """You investigate synthetic software incidents.
+_BENCHMARK_SYSTEM_INSTRUCTIONS = """You investigate synthetic software incidents.
 
 Use only the supplied incident report, observed Evidence, and RetrievedRunbooks.
 Evidence contains observed incident facts. RetrievedRunbooks contain reference
@@ -31,12 +35,27 @@ the evidence is insufficient, return inconclusive with null diagnosis fields and
 an empty cited_evidence_ids list. Do not invent observations or identifiers.
 """
 
+_RUNTIME_SYSTEM_INSTRUCTIONS = """You investigate a software incident from a
+transient user-supplied bundle.
 
-class OpenAIReasoningDecision(BaseModel):
-    """Represent both diagnosed and inconclusive structured model output."""
+Use only the supplied incident report, observed Evidence, and RetrievedRunbooks.
+Evidence contains observed incident facts. RetrievedRunbooks contain reference
+knowledge: retrieval similarity is not causal evidence or diagnosis confidence.
+
+Return diagnosed only when the observed Evidence supports a single root cause.
+Create a concise lowercase snake_case root_cause_label that describes that cause;
+do not limit it to a preset taxonomy. Cite only Evidence IDs, never runbook IDs.
+If competing explanations remain or the evidence is insufficient, return
+inconclusive with null diagnosis fields and an empty cited_evidence_ids list.
+Do not invent observations or identifiers.
+"""
+
+
+class _ReasoningDecisionBase(BaseModel):
+    """Validate fields shared by benchmark and runtime model decisions."""
 
     status: InvestigationStatus
-    root_cause_label: RootCauseLabel | None
+    root_cause_label: RootCauseName | None
     probable_root_cause: str | None
     cited_evidence_ids: list[str]
     confidence: float | None = Field(ge=0, le=1)
@@ -66,6 +85,18 @@ class OpenAIReasoningDecision(BaseModel):
         return self
 
 
+class OpenAIReasoningDecision(_ReasoningDecisionBase):
+    """Keep the frozen evaluator constrained to its benchmark taxonomy."""
+
+    root_cause_label: RootCauseLabel | None
+
+
+class RuntimeReasoningDecision(_ReasoningDecisionBase):
+    """Allow normalized causes outside the benchmark's closed label set."""
+
+    root_cause_label: RootCauseName | None
+
+
 def build_openai_reasoning_input(
     incident: Incident,
     evidence: list[Evidence],
@@ -92,16 +123,74 @@ def generate_openai_hypothesis(
     client: OpenAI | None = None,
     model: str = OPENAI_REASONING_MODEL,
 ) -> Hypothesis:
-    """Ask one OpenAI model for a schema-constrained investigation decision."""
+    """Ask OpenAI for a benchmark-taxonomy investigation decision."""
     if client is None:
         load_dotenv()
-        openai_client = OpenAI()
+        openai_client = OpenAI(
+            timeout=MODEL_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
     else:
         openai_client = client
-    response = openai_client.responses.parse(
+    return _generate_hypothesis(
+        incident,
+        evidence,
+        retrieved_runbooks,
+        client=openai_client,
         model=model,
+        instructions=_BENCHMARK_SYSTEM_INSTRUCTIONS,
+        decision_format=OpenAIReasoningDecision,
+        reasoner_name="OpenAI",
+    )
+
+
+def generate_openai_runtime_hypothesis(
+    incident: Incident,
+    evidence: list[Evidence],
+    retrieved_runbooks: list[RetrievedRunbook],
+    *,
+    client: OpenAI | None = None,
+    model: str = OPENAI_REASONING_MODEL,
+) -> Hypothesis:
+    """Ask OpenAI for an open-taxonomy runtime investigation decision."""
+    if client is None:
+        load_dotenv()
+        openai_client = OpenAI(
+            timeout=MODEL_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
+    else:
+        openai_client = client
+    return _generate_hypothesis(
+        incident,
+        evidence,
+        retrieved_runbooks,
+        client=openai_client,
+        model=model,
+        instructions=_RUNTIME_SYSTEM_INSTRUCTIONS,
+        decision_format=RuntimeReasoningDecision,
+        reasoner_name="OpenAI runtime",
+    )
+
+
+def _generate_hypothesis(
+    incident: Incident,
+    evidence: list[Evidence],
+    retrieved_runbooks: list[RetrievedRunbook],
+    *,
+    client: OpenAI,
+    model: str,
+    instructions: str,
+    decision_format: type[OpenAIReasoningDecision] | type[RuntimeReasoningDecision],
+    reasoner_name: str,
+) -> Hypothesis:
+    """Run one bounded Responses request and translate its parsed decision."""
+    response = client.responses.parse(
+        model=model,
+        reasoning={"effort": MODEL_REASONING_EFFORT},
+        max_output_tokens=MODEL_MAX_OUTPUT_TOKENS,
         input=[
-            {"role": "system", "content": _SYSTEM_INSTRUCTIONS},
+            {"role": "system", "content": instructions},
             {
                 "role": "user",
                 "content": build_openai_reasoning_input(
@@ -111,15 +200,15 @@ def generate_openai_hypothesis(
                 ),
             },
         ],
-        text_format=OpenAIReasoningDecision,
+        text_format=decision_format,
     )
     decision = response.output_parsed
     if decision is None:
-        raise RuntimeError("OpenAI returned no parsed investigation decision")
+        raise RuntimeError(f"{reasoner_name} returned no parsed investigation decision")
 
     if decision.status == InvestigationStatus.INCONCLUSIVE:
         raise InsufficientEvidenceError(
-            "The OpenAI reasoner found insufficient evidence for a diagnosis."
+            f"The {reasoner_name} found insufficient evidence for a diagnosis."
         )
 
     # The decision validator established that diagnosed fields are present.
@@ -129,7 +218,7 @@ def generate_openai_hypothesis(
         or decision.confidence is None
         or decision.recommended_remediation is None
     ):
-        raise RuntimeError("OpenAI returned an incomplete diagnosed decision")
+        raise RuntimeError(f"{reasoner_name} returned an incomplete decision")
 
     return Hypothesis(
         root_cause_label=decision.root_cause_label,

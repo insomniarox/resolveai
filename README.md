@@ -2,11 +2,11 @@
 
 ResolveAI is an AI incident investigation copilot whose current public runtime
 uses deliberately constructed synthetic operational data. The reviewer-facing
-API investigates three prepared incidents, reports when available evidence is
-insufficient, and retrieves related runbook knowledge from PostgreSQL. The API
-defaults to an evidence-only deterministic fake, while the frozen ten-case
-benchmark can run the structured GPT-5.6 Luna reasoner through direct OpenAI or
-OpenRouter access. Retrieved similarity is neither causal evidence nor diagnosis
+API investigates three prepared incidents with a deterministic fake and accepts
+transient runtime bundles through a server-selected GPT-5.6 Luna provider. The
+runtime supports OpenRouter or direct OpenAI configuration without exposing a
+provider picker or user keys. Both paths retrieve related runbook knowledge from
+PostgreSQL; retrieved similarity is neither causal evidence nor diagnosis
 confidence.
 
 ## Run locally
@@ -76,8 +76,12 @@ curl -X POST http://127.0.0.1:8000/runtime/investigate \
   }'
 ```
 
-The runtime bundle is validated, investigated, returned, and discarded. It is
-not inserted into the fixture set or PostgreSQL.
+The runtime bundle is validated, sent to the configured external inference
+provider, investigated, returned, and discarded by ResolveAI. It is not inserted
+into the fixture set or PostgreSQL. Copy `.env.example` to `.env`, keep
+`RESOLVEAI_RUNTIME_PROVIDER=openrouter`, and set a capped `OPENROUTER_API_KEY`.
+To use direct OpenAI instead, select `openai` and set `OPENAI_API_KEY`. There is
+no automatic provider or fake fallback.
 
 ### Enable local console traces
 
@@ -701,6 +705,20 @@ Changing only `--runbooks disabled` supplies an empty runbook sequence to the
 same reasoner boundary. There is no fallback, routing, prompt-management layer,
 LangChain, or LangGraph.
 
+The separate opt-in runtime check runs four mutable runtime cases three times,
+including one valid root cause outside the frozen benchmark taxonomy:
+
+```bash
+RESOLVEAI_RUNTIME_PROVIDER=openrouter \
+OPENROUTER_API_KEY=... \
+uv run python -m evals.evaluate_runtime_reasoning \
+  --database-url postgresql://resolveai:resolveai@localhost:5432/resolveai \
+  --repeats 3
+```
+
+This command makes billable provider calls and is intentionally excluded from
+CI. The ordinary test suite never calls OpenAI or OpenRouter.
+
 ### Known evaluation limitations
 
 - all ten incidents are synthetic;
@@ -821,12 +839,11 @@ question requiring those additions.
 > Span granularity should increase only when an existing span becomes too coarse
 > to answer a demonstrated operational question.
 
-Phases 3 through 6 and the local Phase 7.1 implementation are complete.
-ResolveAI's CI passes on GitHub-hosted runners, and its Phase 6 Northflank
-deployment passed direct and browser-level end-to-end verification. Phase 7.1
-adds a locally verified transient runtime-bundle path; it has not yet been
-deployed to Northflank. Phase 7.2 — controlled real-model runtime reasoning — is
-next and has not started.
+Phases 3 through 7.1 are complete. ResolveAI's CI passes on GitHub-hosted
+runners, and the Phase 7.1 Northflank deployment passed direct and browser-level
+verification for guided and runtime paths. Phase 7.2 controlled real-model
+runtime reasoning is implemented and verified locally; its capped provider
+secret, Northflank deployment, and live-provider smoke test remain pending.
 
 ## Phase 6.2 — Continuous integration
 
@@ -958,10 +975,10 @@ converts validated input to `Incident + Evidence[]`, and both fixture and runtim
 paths call the same `investigate_evidence()` orchestration.
 
 The Next.js interface provides a prepared guided-demo tab and a Runtime JSON
-tab. It includes an editable novel example, explains the current deterministic
-reasoner and transient retention behavior, presents diagnosed or inconclusive
-results with the existing Evidence/runbook semantics, and reports client JSON
-errors and server validation failures separately.
+tab. It includes an editable novel example, explains transient retention and
+external provider processing, presents diagnosed or inconclusive results with
+the existing Evidence/runbook semantics, and reports client JSON errors and
+server validation failures separately.
 
 The Phase 7.1 boundary remains deliberately narrow:
 
@@ -969,14 +986,14 @@ The Phase 7.1 boundary remains deliberately narrow:
 - a local user may now submit new normalized incident data, but it is not stored;
 - PostgreSQL persists the frozen nine-runbook retrieval corpus and embeddings,
   not runtime incidents or investigation history;
-- the default fake reasoner recognizes two deliberately programmed evidence
+- the guided fake reasoner recognizes two deliberately programmed evidence
   patterns;
-- real reasoners exist for manual evaluation, but the public API does not expose
-  them;
+- the runtime endpoint uses the configured real provider after Phase 7.2;
 - completed results are returned to the browser and are not persisted.
 
-The public Northflank deployment still runs the completed Phase 6 build and does
-not expose Phase 7.1 until a later deployment is deliberately performed.
+The public Northflank deployment exposes this Phase 7.1 boundary and passed
+browser smoke verification. It does not expose Phase 7.2 live inference until
+the new provider configuration is deliberately deployed.
 
 This is useful evaluation infrastructure, not evidence that arbitrary incidents
 already work. The next major architecture therefore separates two worlds:
@@ -1010,11 +1027,11 @@ The implemented bundle has this essential shape:
 }
 ```
 
-Phase 7.1 validated and normalized a user-supplied incident and Evidence, then
-investigated novel IDs without changing fixtures or benchmark inputs. Runtime
-reasoning still uses the deterministic fake, so this slice proves generalized
-input—not generalized AI reasoning. Phase 7.2 must use one fixed server-side real
-model without silently falling back to fake reasoning.
+Phase 7.1 validated and normalized user-supplied Incident and Evidence data,
+then investigated novel IDs without changing fixtures or benchmark inputs. It
+proved generalized input rather than generalized reasoning; Phase 7.2 supplies
+the fixed server-side real-model path without silently falling back to fake
+reasoning.
 
 Runtime knowledge should initially use bounded text or Markdown documents, one
 embedding per document, synchronous FastEmbed generation, pgvector Top-3
@@ -1027,14 +1044,44 @@ The intended reviewer experience eventually has two explicit paths:
 ```text
 Guided demo                         Runtime JSON
 prepared synthetic incident        versioned incident bundle
-deterministic and repeatable        deterministic fake in Phase 7.1
-fast architecture tour             proof of previously unseen input
+deterministic and repeatable        server-selected live model in Phase 7.2
+fast architecture tour             previously unseen transient input
 ```
 
 The own-data path begins without accounts or durable retention. Phase 7.1 adds
 schema, size, count, duplicate-ID, timestamp, and supported-type validation.
-Rate, concurrency, model-budget, timeout, and explicit provider-error boundaries
-belong to Phase 7.2 when the public runtime introduces a real provider.
+Phase 7.2 adds one concurrent model request, explicit reasoning/output budgets,
+a 30-second provider timeout, stable 429/502/503/504 errors, provider/model
+metadata, and an open runtime diagnosis taxonomy. The frozen evaluator keeps its
+closed labels. No provider failure falls back to the deterministic fake.
+
+## Phase 7.2 — Controlled real-model runtime reasoning
+
+`RESOLVEAI_RUNTIME_PROVIDER` selects exactly one server-side adapter:
+
+| Value | Fixed model | Required secret |
+|---|---|---|
+| `openrouter` | `openai/gpt-5.6-luna` | `OPENROUTER_API_KEY` |
+| `openai` | `gpt-5.6-luna` | `OPENAI_API_KEY` |
+
+The intended Northflank configuration is OpenRouter with a key-level spend cap.
+The API exposes safe metadata at `GET /runtime/reasoner`; it never returns a key.
+Both adapters use Responses structured output with `medium` reasoning, a 4,000
+output-token limit, 30-second timeout, and no SDK retries. Runtime model labels
+are bounded normalized strings rather than members of the evaluator's frozen
+enum. Citation verification still rejects any Evidence ID not present in the
+submitted bundle.
+
+Deployment handoff:
+
+1. Add `RESOLVEAI_RUNTIME_PROVIDER=openrouter` and the capped
+   `OPENROUTER_API_KEY` to the private Northflank API service.
+2. Push the Phase 7.2 commit and let GitHub Actions pass before Northflank builds
+   and deploys it.
+3. Verify `/api/runtime/reasoner`, one live runtime diagnosis, one insufficient
+   runtime case, guided `INC-001`, guided `INC-003`, and the mobile layout.
+4. Confirm the runtime response reports OpenRouter/Luna while guided responses
+   still report `deterministic/evidence-only-fake-v1`.
 
 ## Verify
 

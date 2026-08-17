@@ -271,10 +271,13 @@ def load_benchmark_slice(benchmark: BenchmarkSlice) -> list[InvestigationBenchma
 def normalized_root_cause(
     result: InvestigationResult,
 ) -> RootCauseLabel | None:
-    """Read the normalized label carried by structured diagnosis output."""
+    """Project application output back into the frozen benchmark taxonomy."""
     if result.diagnosis is None:
         return None
-    return result.diagnosis.root_cause_label
+    try:
+        return RootCauseLabel(result.diagnosis.root_cause_label)
+    except ValueError:
+        return None
 
 
 def classify_completed_result(
@@ -368,7 +371,9 @@ def evaluate_cases(
                 InvestigationCaseResult(
                     case=case,
                     actual_status=InvestigationStatus.DIAGNOSED,
-                    predicted_root_cause_label=generated_hypothesis.root_cause_label,
+                    predicted_root_cause_label=_benchmark_label(
+                        generated_hypothesis.root_cause_label
+                    ),
                     cited_evidence_ids=list(generated_hypothesis.cited_evidence_ids),
                     outcome=(
                         CaseOutcome.UNSUPPORTED_ANSWER
@@ -416,6 +421,14 @@ def evaluate_cases(
         )
 
     return results
+
+
+def _benchmark_label(label: str) -> RootCauseLabel | None:
+    """Treat labels outside the frozen taxonomy as ordinary wrong answers."""
+    try:
+        return RootCauseLabel(label)
+    except ValueError:
+        return None
 
 
 def calculate_metrics(

@@ -24,7 +24,9 @@ from resolve_ai.models import (
     IncidentContext,
     InvestigationResult,
     InvestigationStatus,
+    ReasonerMetadata,
     RetrievedRunbook,
+    deterministic_reasoner_metadata,
 )
 from resolve_ai.reasoning import HypothesisGenerator, InsufficientEvidenceError
 from resolve_ai.retrieval import semantic_search_runbooks
@@ -41,6 +43,7 @@ def investigate_incident(
     context: IncidentContext,
     database_url: str,
     hypothesis_generator: HypothesisGenerator = generate_fake_hypothesis,
+    reasoner: ReasonerMetadata | None = None,
 ) -> InvestigationResult:
     """Adapt fixture/collector records into the shared investigation workflow."""
     evidence = inspect_logs(context) + inspect_deployments(context)
@@ -49,6 +52,7 @@ def investigate_incident(
         evidence=evidence,
         database_url=database_url,
         hypothesis_generator=hypothesis_generator,
+        reasoner=reasoner,
     )
 
 
@@ -57,6 +61,7 @@ def investigate_evidence(
     evidence: list[Evidence],
     database_url: str,
     hypothesis_generator: HypothesisGenerator = generate_fake_hypothesis,
+    reasoner: ReasonerMetadata | None = None,
 ) -> InvestigationResult:
     """Run the synchronous workflow from normalized operational Evidence.
 
@@ -67,6 +72,7 @@ def investigate_evidence(
     """
     incident = incident.model_copy(deep=True)
     evidence = [item.model_copy(deep=True) for item in evidence]
+    reasoner = reasoner or deterministic_reasoner_metadata()
 
     with tracer.start_as_current_span(
         "investigation",
@@ -105,6 +111,8 @@ def investigate_evidence(
             attributes={
                 "resolveai.evidence.count": len(evidence),
                 "resolveai.runbook.count": len(retrieved_runbooks),
+                "resolveai.reasoner.provider": reasoner.provider,
+                "resolveai.reasoner.model": reasoner.model,
             },
         ) as reasoning_span:
             if hypothesis_generator is generate_fake_hypothesis:
@@ -138,6 +146,7 @@ def investigate_evidence(
                 incident.id,
                 evidence,
                 retrieved_runbooks,
+                reasoner,
             )
             investigation_span.set_attribute(
                 "resolveai.investigation.status",
@@ -150,6 +159,7 @@ def investigate_evidence(
             hypothesis,
             evidence,
             retrieved_runbooks,
+            reasoner,
         )
 
         investigation_span.set_attribute(
@@ -159,7 +169,7 @@ def investigate_evidence(
         if result.diagnosis is not None:
             investigation_span.set_attribute(
                 "resolveai.root_cause.label",
-                result.diagnosis.root_cause_label.value,
+                result.diagnosis.root_cause_label,
             )
         return result
 
@@ -182,6 +192,7 @@ def _build_inconclusive_result(
     incident_id: str,
     evidence: list[Evidence],
     retrieved_runbooks: list[RetrievedRunbook],
+    reasoner: ReasonerMetadata,
 ) -> InvestigationResult:
     """Return collected observations without inventing a root cause or action."""
     return InvestigationResult(
@@ -191,6 +202,7 @@ def _build_inconclusive_result(
         # The result owns its list container; list() preserves collection order.
         evidence=list(evidence),
         retrieved_runbooks=list(retrieved_runbooks),
+        reasoner=reasoner,
     )
 
 
@@ -268,6 +280,7 @@ def verify_hypothesis(
     hypothesis: Hypothesis,
     evidence: list[Evidence],
     retrieved_runbooks: list[RetrievedRunbook],
+    reasoner: ReasonerMetadata | None = None,
 ) -> InvestigationResult:
     """Promote a hypothesis after checking only that its citations exist.
 
@@ -315,4 +328,5 @@ def verify_hypothesis(
         evidence=list(evidence),
         # Retrieved guidance remains separate from observed and cited evidence.
         retrieved_runbooks=list(retrieved_runbooks),
+        reasoner=reasoner or deterministic_reasoner_metadata(),
     )

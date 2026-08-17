@@ -8,7 +8,7 @@ from resolve_ai import openrouter_model
 from resolve_ai.fixtures import get_incident_context
 from resolve_ai.investigation import inspect_deployments, inspect_logs
 from resolve_ai.models import InvestigationStatus, RootCauseLabel
-from resolve_ai.openai_model import OpenAIReasoningDecision
+from resolve_ai.openai_model import MODEL_TIMEOUT_SECONDS, OpenAIReasoningDecision
 from resolve_ai.openrouter_model import (
     OPENROUTER_BASE_URL,
     OPENROUTER_REASONING_MODEL,
@@ -91,6 +91,8 @@ def test_default_openrouter_client_loads_dotenv_and_uses_explicit_surface(
         {
             "base_url": OPENROUTER_BASE_URL,
             "api_key": "test-openrouter-key",
+            "timeout": MODEL_TIMEOUT_SECONDS,
+            "max_retries": 0,
         },
     ]
 

@@ -2,9 +2,17 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Request
+from openai import APITimeoutError
 
+from resolve_ai import api
 from resolve_ai.api import app
-from resolve_ai.models import RetrievedRunbook
+from resolve_ai.fake_model import generate_fake_hypothesis
+from resolve_ai.models import Hypothesis, ReasonerMetadata, RetrievedRunbook
+from resolve_ai.runtime_reasoner import (
+    ConfiguredRuntimeReasoner,
+    RuntimeReasonerConfigurationError,
+)
 
 client = TestClient(app)
 
@@ -77,6 +85,16 @@ def configure_test_retrieval(monkeypatch) -> None:
         "resolve_ai.investigation.semantic_search_runbooks",
         lambda database_url, query, limit: retrieved_runbooks,
     )
+    monkeypatch.setattr(
+        "resolve_ai.api.get_runtime_reasoner",
+        lambda: ConfiguredRuntimeReasoner(
+            metadata=ReasonerMetadata(
+                provider="openrouter",
+                model="openai/gpt-5.6-luna",
+            ),
+            generate=generate_fake_hypothesis,
+        ),
+    )
 
 
 def test_list_incidents_returns_available_incidents() -> None:
@@ -122,6 +140,10 @@ def test_investigate_incident_returns_structured_result() -> None:
         "RUN-001",
     ]
     assert body["retrieved_runbooks"][0]["similarity_score"] == 0.8
+    assert body["reasoner"] == {
+        "provider": "deterministic",
+        "model": "evidence-only-fake-v1",
+    }
 
 
 def test_investigate_expired_certificate_incident() -> None:
@@ -171,8 +193,119 @@ def test_runtime_bundle_investigates_novel_evidence_without_changing_fixtures() 
         "USER-LOG-901",
         "USER-LOG-902",
     ]
+    assert body["reasoner"] == {
+        "provider": "openrouter",
+        "model": "openai/gpt-5.6-luna",
+    }
     assert client.get("/incidents").json()[0]["id"] == "INC-001"
     assert len(client.get("/incidents").json()) == 3
+
+
+def test_runtime_reasoner_endpoint_exposes_only_safe_metadata() -> None:
+    response = client.get("/runtime/reasoner")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "openrouter",
+        "model": "openai/gpt-5.6-luna",
+    }
+
+
+def test_runtime_reasoner_configuration_failure_is_stable_503(monkeypatch) -> None:
+    def fail_configuration():
+        raise RuntimeReasonerConfigurationError("secret detail")
+
+    monkeypatch.setattr(api, "get_runtime_reasoner", fail_configuration)
+
+    response = client.post("/runtime/investigate", json=_runtime_bundle())
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Runtime reasoning is not configured."}
+    assert "secret" not in response.text
+
+
+def test_runtime_reasoner_invalid_response_is_stable_502(monkeypatch) -> None:
+    def invalid_response(incident, evidence, retrieved_runbooks):
+        raise RuntimeError("provider-specific response detail")
+
+    monkeypatch.setattr(
+        api,
+        "get_runtime_reasoner",
+        lambda: ConfiguredRuntimeReasoner(
+            metadata=ReasonerMetadata(provider="openrouter", model="test-model"),
+            generate=invalid_response,
+        ),
+    )
+
+    response = client.post("/runtime/investigate", json=_runtime_bundle())
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": "The runtime reasoner returned an invalid response."
+    }
+    assert "provider-specific" not in response.text
+
+
+def test_runtime_reasoner_timeout_is_stable_504(monkeypatch) -> None:
+    def time_out(incident, evidence, retrieved_runbooks):
+        raise APITimeoutError(request=Request("POST", "https://provider.test"))
+
+    monkeypatch.setattr(
+        api,
+        "get_runtime_reasoner",
+        lambda: ConfiguredRuntimeReasoner(
+            metadata=ReasonerMetadata(provider="openrouter", model="test-model"),
+            generate=time_out,
+        ),
+    )
+
+    response = client.post("/runtime/investigate", json=_runtime_bundle())
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "detail": "The runtime reasoner timed out. Please retry."
+    }
+
+
+def test_runtime_reasoner_accepts_an_outside_taxonomy_label(monkeypatch) -> None:
+    def diagnose_dns(incident, evidence, retrieved_runbooks):
+        return Hypothesis(
+            root_cause_label="upstream_dns_resolution_failure",
+            probable_root_cause="The upstream hostname cannot be resolved.",
+            cited_evidence_ids=[evidence[0].id],
+            confidence=0.8,
+            recommended_remediation="Restore the upstream DNS record.",
+        )
+
+    monkeypatch.setattr(
+        api,
+        "get_runtime_reasoner",
+        lambda: ConfiguredRuntimeReasoner(
+            metadata=ReasonerMetadata(provider="openrouter", model="test-model"),
+            generate=diagnose_dns,
+        ),
+    )
+
+    response = client.post("/runtime/investigate", json=_runtime_bundle())
+
+    assert response.status_code == 200
+    assert response.json()["diagnosis"]["root_cause_label"] == (
+        "upstream_dns_resolution_failure"
+    )
+
+
+def test_runtime_reasoner_rejects_overlapping_requests(monkeypatch) -> None:
+    acquired = api._runtime_reasoner_gate.acquire(blocking=False)
+    assert acquired
+    try:
+        response = client.post("/runtime/investigate", json=_runtime_bundle())
+    finally:
+        api._runtime_reasoner_gate.release()
+
+    assert response.status_code == 429
+    assert response.json() == {
+        "detail": "Runtime reasoning is busy. Please retry shortly."
+    }
 
 
 def test_runtime_bundle_can_return_an_honest_inconclusive_result() -> None:
