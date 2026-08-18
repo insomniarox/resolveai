@@ -6,6 +6,7 @@ import type {
   Incident,
   InvestigationResult,
   ReasonerMetadata,
+  RetrievedKnowledgeDocument,
   RetrievedRunbook,
 } from "@/lib/types";
 
@@ -103,6 +104,21 @@ function isRetrievedRunbook(value: unknown): value is RetrievedRunbook {
   );
 }
 
+function isRetrievedKnowledgeDocument(
+  value: unknown,
+): value is RetrievedKnowledgeDocument {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    (value.content_type === "text/plain" ||
+      value.content_type === "text/markdown") &&
+    typeof value.content === "string" &&
+    typeof value.similarity_score === "number" &&
+    Number.isFinite(value.similarity_score)
+  );
+}
+
 function isDiagnosis(value: unknown): value is Diagnosis {
   return (
     isRecord(value) &&
@@ -137,6 +153,8 @@ function isInvestigationResult(value: unknown): value is InvestigationResult {
     !value.evidence.every(isEvidence) ||
     !Array.isArray(value.retrieved_runbooks) ||
     !value.retrieved_runbooks.every(isRetrievedRunbook) ||
+    !Array.isArray(value.retrieved_knowledge_documents) ||
+    !value.retrieved_knowledge_documents.every(isRetrievedKnowledgeDocument) ||
     !isReasonerMetadata(value.reasoner)
   ) {
     return false;

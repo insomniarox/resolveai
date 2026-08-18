@@ -5,7 +5,12 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from resolve_ai.models import Evidence, Hypothesis, Incident, RetrievedRunbook
+from resolve_ai.models import (
+    Evidence,
+    Hypothesis,
+    Incident,
+    RetrievedReferenceKnowledge,
+)
 from resolve_ai.openai_model import (
     MODEL_TIMEOUT_SECONDS,
     generate_openai_hypothesis,
@@ -19,7 +24,7 @@ OPENROUTER_REASONING_MODEL = "openai/gpt-5.6-luna"
 def generate_openrouter_hypothesis(
     incident: Incident,
     evidence: list[Evidence],
-    retrieved_runbooks: list[RetrievedRunbook],
+    retrieved_knowledge: list[RetrievedReferenceKnowledge],
     *,
     client: OpenAI | None = None,
     model: str = OPENROUTER_REASONING_MODEL,
@@ -42,7 +47,7 @@ def generate_openrouter_hypothesis(
     return generate_openai_hypothesis(
         incident,
         evidence,
-        retrieved_runbooks,
+        retrieved_knowledge,
         client=openrouter_client,
         model=model,
     )
@@ -51,7 +56,7 @@ def generate_openrouter_hypothesis(
 def generate_openrouter_runtime_hypothesis(
     incident: Incident,
     evidence: list[Evidence],
-    retrieved_runbooks: list[RetrievedRunbook],
+    retrieved_knowledge: list[RetrievedReferenceKnowledge],
     *,
     client: OpenAI | None = None,
     model: str = OPENROUTER_REASONING_MODEL,
@@ -74,7 +79,7 @@ def generate_openrouter_runtime_hypothesis(
     return generate_openai_runtime_hypothesis(
         incident,
         evidence,
-        retrieved_runbooks,
+        retrieved_knowledge,
         client=openrouter_client,
         model=model,
     )

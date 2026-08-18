@@ -20,8 +20,11 @@ Prepared-incident request flow:
 4. FastAPI serializes the returned ``InvestigationResult`` as JSON.
 """
 
+import logging
 import os
+from datetime import UTC, datetime, timedelta
 from threading import BoundedSemaphore
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, status
 from openai import (
@@ -43,6 +46,11 @@ from resolve_ai.investigation import (
     investigate_incident,
 )
 from resolve_ai.models import Incident, InvestigationResult, ReasonerMetadata
+from resolve_ai.retrieval import (
+    RuntimeKnowledgeError,
+    delete_runtime_knowledge_scope,
+    store_runtime_knowledge_documents,
+)
 from resolve_ai.runtime_input import RuntimeIncidentBundle
 from resolve_ai.runtime_reasoner import (
     RuntimeReasonerConfigurationError,
@@ -56,6 +64,8 @@ configure_console_tracing()
 # development server starts. Creating it does not start a server by itself.
 app = FastAPI(title="ResolveAI", version="0.1.0")
 _runtime_reasoner_gate = BoundedSemaphore(value=1)
+_runtime_knowledge_retention = timedelta(minutes=15)
+logger = logging.getLogger(__name__)
 
 
 def _get_database_url() -> str:
@@ -126,21 +136,37 @@ def investigate_runtime_bundle_endpoint(
         ) from error
 
     database_url = _get_database_url()
-    incident, evidence = bundle.to_domain()
+    incident, evidence, knowledge_documents = bundle.to_domain()
     if not _runtime_reasoner_gate.acquire(blocking=False):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Runtime reasoning is busy. Please retry shortly.",
         )
 
+    knowledge_scope_id: UUID | None = None
     try:
+        if knowledge_documents:
+            knowledge_scope_id = uuid4()
+            store_runtime_knowledge_documents(
+                database_url=database_url,
+                scope_id=knowledge_scope_id,
+                documents=knowledge_documents,
+                expires_at=datetime.now(UTC) + _runtime_knowledge_retention,
+            )
+
         return investigate_evidence(
             incident=incident,
             evidence=evidence,
             database_url=database_url,
             hypothesis_generator=reasoner.generate,
             reasoner=reasoner.metadata,
+            knowledge_scope_id=knowledge_scope_id,
         )
+    except RuntimeKnowledgeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Runtime knowledge is temporarily unavailable.",
+        ) from error
     except APITimeoutError as error:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -173,4 +199,11 @@ def investigate_runtime_bundle_endpoint(
             detail="The runtime reasoner is temporarily unavailable.",
         ) from error
     finally:
+        if knowledge_scope_id is not None:
+            try:
+                delete_runtime_knowledge_scope(database_url, knowledge_scope_id)
+            except RuntimeKnowledgeError:
+                # Expired rows are excluded from retrieval and purged by a later
+                # ingestion. Cleanup failure must not conceal the real outcome.
+                logger.error("Failed to delete a runtime knowledge scope")
         _runtime_reasoner_gate.release()

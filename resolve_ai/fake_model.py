@@ -19,7 +19,7 @@ from resolve_ai.models import (
     EvidenceSource,
     Hypothesis,
     Incident,
-    RetrievedRunbook,
+    RetrievedReferenceKnowledge,
     RootCauseLabel,
 )
 from resolve_ai.reasoning import InsufficientEvidenceError
@@ -86,10 +86,10 @@ def generate_hypothesis(evidence: list[Evidence]) -> Hypothesis:
 def generate_fake_hypothesis(
     incident: Incident,
     evidence: list[Evidence],
-    retrieved_runbooks: list[RetrievedRunbook],
+    retrieved_knowledge: list[RetrievedReferenceKnowledge],
 ) -> Hypothesis:
     """Adapt the evidence-only fake to the shared reasoning boundary."""
-    del incident, retrieved_runbooks
+    del incident, retrieved_knowledge
     return generate_hypothesis(evidence)
 
 

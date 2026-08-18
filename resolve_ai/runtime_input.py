@@ -19,7 +19,17 @@ from pydantic import (
     model_validator,
 )
 
-from resolve_ai.models import Evidence, EvidenceKind, EvidenceSource, Incident
+from resolve_ai.models import (
+    Evidence,
+    EvidenceKind,
+    EvidenceSource,
+    Incident,
+    KnowledgeDocument,
+)
+
+MAX_RUNTIME_KNOWLEDGE_DOCUMENTS = 5
+MAX_RUNTIME_KNOWLEDGE_DOCUMENT_CHARACTERS = 8_000
+MAX_RUNTIME_KNOWLEDGE_TOTAL_CHARACTERS = 20_000
 
 _Identifier = Annotated[
     str,
@@ -121,6 +131,39 @@ class RuntimeEvidenceInput(BaseModel):
         )
 
 
+class RuntimeKnowledgeDocumentInput(BaseModel):
+    """Describe one small text document available only to this request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: _Identifier
+    title: _Title
+    content_type: Literal["text/plain", "text/markdown"]
+    content: str = Field(
+        min_length=1,
+        max_length=MAX_RUNTIME_KNOWLEDGE_DOCUMENT_CHARACTERS,
+    )
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        """Keep PostgreSQL text valid without changing meaningful Markdown spacing."""
+        if not value.strip():
+            raise ValueError("document content must not be blank")
+        if "\x00" in value:
+            raise ValueError("document content must not contain NUL characters")
+        return value
+
+    def to_domain(self) -> KnowledgeDocument:
+        """Create an independent domain document after transport validation."""
+        return KnowledgeDocument(
+            id=self.id,
+            title=self.title,
+            content_type=self.content_type,
+            content=self.content,
+        )
+
+
 class RuntimeIncidentBundle(BaseModel):
     """Version 1 of the bounded, transient runtime investigation contract."""
 
@@ -129,15 +172,38 @@ class RuntimeIncidentBundle(BaseModel):
     schema_version: Literal[1]
     incident: RuntimeIncidentInput
     evidence: list[RuntimeEvidenceInput] = Field(min_length=1, max_length=50)
+    knowledge_documents: list[RuntimeKnowledgeDocumentInput] = Field(
+        default_factory=list,
+        max_length=MAX_RUNTIME_KNOWLEDGE_DOCUMENTS,
+    )
 
     @model_validator(mode="after")
     def validate_unique_evidence_ids(self) -> "RuntimeIncidentBundle":
         """Keep citations unambiguous by rejecting duplicate observation IDs."""
-        ids = [item.id for item in self.evidence]
-        if len(ids) != len(set(ids)):
+        evidence_ids = [item.id for item in self.evidence]
+        if len(evidence_ids) != len(set(evidence_ids)):
             raise ValueError("evidence IDs must be unique")
+
+        document_ids = [item.id for item in self.knowledge_documents]
+        if len(document_ids) != len(set(document_ids)):
+            raise ValueError("knowledge document IDs must be unique")
+        if set(evidence_ids) & set(document_ids):
+            raise ValueError("knowledge document IDs must differ from evidence IDs")
+
+        total_characters = sum(len(item.content) for item in self.knowledge_documents)
+        if total_characters > MAX_RUNTIME_KNOWLEDGE_TOTAL_CHARACTERS:
+            raise ValueError(
+                "knowledge document content must contain at most "
+                f"{MAX_RUNTIME_KNOWLEDGE_TOTAL_CHARACTERS} characters in total"
+            )
         return self
 
-    def to_domain(self) -> tuple[Incident, list[Evidence]]:
+    def to_domain(
+        self,
+    ) -> tuple[Incident, list[Evidence], list[KnowledgeDocument]]:
         """Adapt the public DTO into the shared investigation input boundary."""
-        return self.incident.to_domain(), [item.to_domain() for item in self.evidence]
+        return (
+            self.incident.to_domain(),
+            [item.to_domain() for item in self.evidence],
+            [item.to_domain() for item in self.knowledge_documents],
+        )
