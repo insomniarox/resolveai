@@ -839,11 +839,11 @@ question requiring those additions.
 > Span granularity should increase only when an existing span becomes too coarse
 > to answer a demonstrated operational question.
 
-Phases 3 through 7.1 are complete. ResolveAI's CI passes on GitHub-hosted
-runners, and the Phase 7.1 Northflank deployment passed direct and browser-level
-verification for guided and runtime paths. Phase 7.2 controlled real-model
-runtime reasoning is implemented and verified locally; its capped provider
-secret, Northflank deployment, and live-provider smoke test remain pending.
+Phases 3 through 7.2 are complete. ResolveAI's CI passes on GitHub-hosted
+runners, and the Northflank deployment passed direct and browser-level
+verification for guided and runtime paths. The Phase 7.2 public runtime uses the
+server-selected OpenRouter GPT-5.6 Luna reasoner; its capped provider secret,
+deployment, metadata disclosure, and live inference smoke test are verified.
 
 ## Phase 6.2 — Continuous integration
 
@@ -945,9 +945,9 @@ introduced.
 
 ### 6.3.4 — Public Next.js and browser verification
 
-The production Next.js container is publicly available at
-`https://p01--web--2g46kqjy6mpk.code.run/` and uses
-`RESOLVEAI_API_URL=http://api:8000` for its server-side rewrite. Browser-level
+The production Next.js container is publicly deployed and uses
+`RESOLVEAI_API_URL=http://api:8000` for its server-side rewrite. The public
+address is intentionally omitted from repository documentation. Browser-level
 Chromium verification confirmed that all three incidents render, `INC-001`
 produces the diagnosed presentation with visually distinct collected Evidence,
 supporting Evidence, and retrieved reference knowledge, and `INC-003` produces
@@ -991,9 +991,9 @@ The Phase 7.1 boundary remains deliberately narrow:
 - the runtime endpoint uses the configured real provider after Phase 7.2;
 - completed results are returned to the browser and are not persisted.
 
-The public Northflank deployment exposes this Phase 7.1 boundary and passed
-browser smoke verification. It does not expose Phase 7.2 live inference until
-the new provider configuration is deliberately deployed.
+The public Northflank deployment exposes this Phase 7.1 boundary and the Phase
+7.2 live-model path. Both passed their corresponding browser or live-provider
+smoke verification.
 
 This is useful evaluation infrastructure, not evidence that arbitrary incidents
 already work. The next major architecture therefore separates two worlds:
@@ -1039,7 +1039,7 @@ retrieval, and strict corpus scoping. Chunking, queues, reranking, hybrid search
 query rewriting, a dedicated vector database, and background workers remain
 unjustified until measurements show a concrete need.
 
-The intended reviewer experience eventually has two explicit paths:
+The reviewer experience now has two explicit paths:
 
 ```text
 Guided demo                         Runtime JSON
@@ -1064,7 +1064,7 @@ closed labels. No provider failure falls back to the deterministic fake.
 | `openrouter` | `openai/gpt-5.6-luna` | `OPENROUTER_API_KEY` |
 | `openai` | `gpt-5.6-luna` | `OPENAI_API_KEY` |
 
-The intended Northflank configuration is OpenRouter with a key-level spend cap.
+The deployed Northflank configuration is OpenRouter with a key-level spend cap.
 The API exposes safe metadata at `GET /runtime/reasoner`; it never returns a key.
 Both adapters use Responses structured output with `medium` reasoning, a 4,000
 output-token limit, 30-second timeout, and no SDK retries. Runtime model labels
@@ -1072,16 +1072,15 @@ are bounded normalized strings rather than members of the evaluator's frozen
 enum. Citation verification still rejects any Evidence ID not present in the
 submitted bundle.
 
-Deployment handoff:
+The Phase 7.2 pull request passed GitHub Actions, merged into `main`, and deployed
+through Northflank. A public live-provider smoke investigation completed through
+OpenRouter. The runtime reported `openrouter/openai/gpt-5.6-luna`, while the
+guided path retained `deterministic/evidence-only-fake-v1`. No browser key,
+provider picker, automatic provider fallback, or persisted runtime input was
+introduced.
 
-1. Add `RESOLVEAI_RUNTIME_PROVIDER=openrouter` and the capped
-   `OPENROUTER_API_KEY` to the private Northflank API service.
-2. Push the Phase 7.2 commit and let GitHub Actions pass before Northflank builds
-   and deploys it.
-3. Verify `/api/runtime/reasoner`, one live runtime diagnosis, one insufficient
-   runtime case, guided `INC-001`, guided `INC-003`, and the mobile layout.
-4. Confirm the runtime response reports OpenRouter/Luna while guided responses
-   still report `deterministic/evidence-only-fake-v1`.
+Phase 7.2 exit status: complete, deployed, and live-provider verified. Phase 7.3
+scoped runtime knowledge ingestion is next.
 
 ## Verify
 
