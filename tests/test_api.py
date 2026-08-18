@@ -1,5 +1,7 @@
 """Exercise the public HTTP contract without starting a real network server."""
 
+from uuid import UUID
+
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Request
@@ -8,7 +10,13 @@ from openai import APITimeoutError
 from resolve_ai import api
 from resolve_ai.api import app
 from resolve_ai.fake_model import generate_fake_hypothesis
-from resolve_ai.models import Hypothesis, ReasonerMetadata, RetrievedRunbook
+from resolve_ai.models import (
+    Hypothesis,
+    ReasonerMetadata,
+    RetrievedKnowledgeDocument,
+    RetrievedRunbook,
+)
+from resolve_ai.retrieval import RuntimeKnowledgeError
 from resolve_ai.runtime_reasoner import (
     ConfiguredRuntimeReasoner,
     RuntimeReasonerConfigurationError,
@@ -59,6 +67,18 @@ def _runtime_bundle() -> dict:
             },
         ],
     }
+
+
+def _add_runtime_document(bundle: dict) -> None:
+    """Add one bounded request-scoped document to a runtime bundle."""
+    bundle["knowledge_documents"] = [
+        {
+            "id": "DOC-901",
+            "title": "Checkout session lifecycle",
+            "content_type": "text/markdown",
+            "content": "A checkout waits when every reusable session is assigned.",
+        }
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -201,6 +221,67 @@ def test_runtime_bundle_investigates_novel_evidence_without_changing_fixtures() 
     assert len(client.get("/incidents").json()) == 3
 
 
+def test_runtime_bundle_retrieves_and_cleans_up_scoped_knowledge(monkeypatch) -> None:
+    bundle = _runtime_bundle()
+    _add_runtime_document(bundle)
+    scope_id = UUID("12345678-1234-5678-1234-567812345678")
+    calls: dict[str, object] = {}
+    retrieved_document = RetrievedKnowledgeDocument(
+        id="DOC-901",
+        title="Checkout session lifecycle",
+        content_type="text/markdown",
+        content="A checkout waits when every reusable session is assigned.",
+        similarity_score=0.91,
+    )
+
+    monkeypatch.setattr(api, "uuid4", lambda: scope_id)
+
+    def store_documents(**kwargs):
+        calls["stored"] = kwargs
+        return 1
+
+    def delete_scope(database_url, deleted_scope_id):
+        calls["deleted"] = (database_url, deleted_scope_id)
+        return 1
+
+    monkeypatch.setattr(api, "store_runtime_knowledge_documents", store_documents)
+    monkeypatch.setattr(api, "delete_runtime_knowledge_scope", delete_scope)
+    monkeypatch.setattr(
+        "resolve_ai.investigation.semantic_search_runtime_knowledge_documents",
+        lambda database_url, scope_id, query, limit: [retrieved_document],
+    )
+
+    response = client.post("/runtime/investigate", json=bundle)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body["retrieved_knowledge_documents"]] == ["DOC-901"]
+    assert calls["stored"]["scope_id"] == scope_id
+    assert calls["stored"]["documents"][0].id == "DOC-901"
+    assert calls["deleted"] == ("postgresql://test", scope_id)
+
+
+def test_runtime_knowledge_failure_is_stable_503(monkeypatch) -> None:
+    bundle = _runtime_bundle()
+    _add_runtime_document(bundle)
+    monkeypatch.setattr(
+        api,
+        "store_runtime_knowledge_documents",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeKnowledgeError("database detail")
+        ),
+    )
+    monkeypatch.setattr(api, "delete_runtime_knowledge_scope", lambda *args: 0)
+
+    response = client.post("/runtime/investigate", json=bundle)
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Runtime knowledge is temporarily unavailable."
+    }
+    assert "database detail" not in response.text
+
+
 def test_runtime_reasoner_endpoint_exposes_only_safe_metadata() -> None:
     response = client.get("/runtime/reasoner")
 
@@ -247,6 +328,10 @@ def test_runtime_reasoner_invalid_response_is_stable_502(monkeypatch) -> None:
 
 
 def test_runtime_reasoner_timeout_is_stable_504(monkeypatch) -> None:
+    bundle = _runtime_bundle()
+    _add_runtime_document(bundle)
+    deleted_scopes: list[UUID] = []
+
     def time_out(incident, evidence, retrieved_runbooks):
         raise APITimeoutError(request=Request("POST", "https://provider.test"))
 
@@ -258,13 +343,24 @@ def test_runtime_reasoner_timeout_is_stable_504(monkeypatch) -> None:
             generate=time_out,
         ),
     )
+    monkeypatch.setattr(api, "store_runtime_knowledge_documents", lambda **kwargs: 1)
+    monkeypatch.setattr(
+        api,
+        "delete_runtime_knowledge_scope",
+        lambda database_url, scope_id: deleted_scopes.append(scope_id) or 1,
+    )
+    monkeypatch.setattr(
+        "resolve_ai.investigation.semantic_search_runtime_knowledge_documents",
+        lambda database_url, scope_id, query, limit: [],
+    )
 
-    response = client.post("/runtime/investigate", json=_runtime_bundle())
+    response = client.post("/runtime/investigate", json=bundle)
 
     assert response.status_code == 504
     assert response.json() == {
         "detail": "The runtime reasoner timed out. Please retry."
     }
+    assert len(deleted_scopes) == 1
 
 
 def test_runtime_reasoner_accepts_an_outside_taxonomy_label(monkeypatch) -> None:
@@ -348,6 +444,63 @@ def test_runtime_bundle_rejects_more_than_fifty_evidence_items() -> None:
     bundle["evidence"] = [
         {**template, "id": f"USER-LOG-{index:03d}"} for index in range(51)
     ]
+
+    response = client.post("/runtime/investigate", json=bundle)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "documents",
+    [
+        [
+            {
+                "id": f"DOC-{index}",
+                "title": "Document",
+                "content_type": "text/plain",
+                "content": "bounded content",
+            }
+            for index in range(6)
+        ],
+        [
+            {
+                "id": "DOC-SAME",
+                "title": "First",
+                "content_type": "text/plain",
+                "content": "first",
+            },
+            {
+                "id": "DOC-SAME",
+                "title": "Second",
+                "content_type": "text/markdown",
+                "content": "second",
+            },
+        ],
+        [
+            {
+                "id": f"DOC-{index}",
+                "title": "Document",
+                "content_type": "text/plain",
+                "content": "x" * 5_000,
+            }
+            for index in range(5)
+        ],
+    ],
+    ids=["too-many-documents", "duplicate-document-id", "aggregate-content-limit"],
+)
+def test_runtime_bundle_rejects_invalid_knowledge_document_sets(documents) -> None:
+    bundle = _runtime_bundle()
+    bundle["knowledge_documents"] = documents
+
+    response = client.post("/runtime/investigate", json=bundle)
+
+    assert response.status_code == 422
+
+
+def test_runtime_bundle_rejects_knowledge_id_that_matches_evidence() -> None:
+    bundle = _runtime_bundle()
+    _add_runtime_document(bundle)
+    bundle["knowledge_documents"][0]["id"] = bundle["evidence"][0]["id"]
 
     response = client.post("/runtime/investigate", json=bundle)
 

@@ -25,6 +25,26 @@ CREATE INDEX IF NOT EXISTS runbooks_search_vector_idx
     ON runbooks
     USING GIN (search_vector);
 
+-- Runtime documents live in a separate table so no benchmark query can select
+-- them accidentally. A server-generated scope owns every row, and NOT NULL on
+-- the embedding prevents half-ready documents from becoming retrievable.
+CREATE TABLE IF NOT EXISTS runtime_knowledge_documents (
+    scope_id uuid NOT NULL,
+    document_id text NOT NULL,
+    title text NOT NULL,
+    content_type text NOT NULL CHECK (
+        content_type IN ('text/plain', 'text/markdown')
+    ),
+    content text NOT NULL,
+    embedding vector(384) NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    PRIMARY KEY (scope_id, document_id)
+);
+
+CREATE INDEX IF NOT EXISTS runtime_knowledge_documents_expires_at_idx
+    ON runtime_knowledge_documents (expires_at);
+
 -- The corpus deliberately gives RUN-003 one lexical overlap with the test
 -- query. RUN-001 should rank higher because its weighted title matches both the
 -- "connection pool" phrase and "timeout", while RUN-003 has "timeout" only in

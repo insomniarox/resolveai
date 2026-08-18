@@ -2,10 +2,15 @@
 
 from collections.abc import Callable
 
-from resolve_ai.models import Evidence, Hypothesis, Incident, RetrievedRunbook
+from resolve_ai.models import (
+    Evidence,
+    Hypothesis,
+    Incident,
+    RetrievedReferenceKnowledge,
+)
 
 HypothesisGenerator = Callable[
-    [Incident, list[Evidence], list[RetrievedRunbook]],
+    [Incident, list[Evidence], list[RetrievedReferenceKnowledge]],
     Hypothesis,
 ]
 

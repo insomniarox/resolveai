@@ -11,6 +11,8 @@ There are no loops, retries, persistent state, or conditional tool calls, so a
 workflow framework such as LangGraph would make this sequence harder to follow.
 """
 
+from uuid import UUID
+
 from opentelemetry import trace
 
 from resolve_ai.fake_model import generate_fake_hypothesis
@@ -25,11 +27,15 @@ from resolve_ai.models import (
     InvestigationResult,
     InvestigationStatus,
     ReasonerMetadata,
+    RetrievedKnowledgeDocument,
     RetrievedRunbook,
     deterministic_reasoner_metadata,
 )
 from resolve_ai.reasoning import HypothesisGenerator, InsufficientEvidenceError
-from resolve_ai.retrieval import semantic_search_runbooks
+from resolve_ai.retrieval import (
+    semantic_search_runbooks,
+    semantic_search_runtime_knowledge_documents,
+)
 
 _RUNBOOK_RETRIEVAL_LIMIT = 3
 tracer = trace.get_tracer(__name__)
@@ -62,6 +68,7 @@ def investigate_evidence(
     database_url: str,
     hypothesis_generator: HypothesisGenerator = generate_fake_hypothesis,
     reasoner: ReasonerMetadata | None = None,
+    knowledge_scope_id: UUID | None = None,
 ) -> InvestigationResult:
     """Run the synchronous workflow from normalized operational Evidence.
 
@@ -105,12 +112,40 @@ def investigate_evidence(
             len(retrieved_runbooks),
         )
 
+        retrieved_knowledge_documents: list[RetrievedKnowledgeDocument] = []
+        if knowledge_scope_id is not None:
+            with tracer.start_as_current_span(
+                "retrieve_runtime_knowledge",
+                attributes={
+                    "resolveai.retrieval.strategy": "semantic",
+                    "resolveai.retrieval.limit": _RUNBOOK_RETRIEVAL_LIMIT,
+                },
+            ) as runtime_retrieval_span:
+                retrieved_knowledge_documents = (
+                    semantic_search_runtime_knowledge_documents(
+                        database_url=database_url,
+                        scope_id=knowledge_scope_id,
+                        query=retrieval_query,
+                        limit=_RUNBOOK_RETRIEVAL_LIMIT,
+                    )
+                )
+                runtime_retrieval_span.set_attribute(
+                    "resolveai.retrieval.result_count",
+                    len(retrieved_knowledge_documents),
+                )
+
+        retrieved_reference_knowledge = [
+            *retrieved_runbooks,
+            *retrieved_knowledge_documents,
+        ]
+
         inconclusive = False
         with tracer.start_as_current_span(
             "generate_hypothesis",
             attributes={
                 "resolveai.evidence.count": len(evidence),
                 "resolveai.runbook.count": len(retrieved_runbooks),
+                "resolveai.runtime_knowledge.count": len(retrieved_knowledge_documents),
                 "resolveai.reasoner.provider": reasoner.provider,
                 "resolveai.reasoner.model": reasoner.model,
             },
@@ -127,7 +162,7 @@ def investigate_evidence(
                 hypothesis = hypothesis_generator(
                     incident,
                     evidence,
-                    retrieved_runbooks,
+                    retrieved_reference_knowledge,
                 )
             except InsufficientEvidenceError:
                 inconclusive = True
@@ -146,6 +181,7 @@ def investigate_evidence(
                 incident.id,
                 evidence,
                 retrieved_runbooks,
+                retrieved_knowledge_documents,
                 reasoner,
             )
             investigation_span.set_attribute(
@@ -159,6 +195,7 @@ def investigate_evidence(
             hypothesis,
             evidence,
             retrieved_runbooks,
+            retrieved_knowledge_documents,
             reasoner,
         )
 
@@ -192,6 +229,7 @@ def _build_inconclusive_result(
     incident_id: str,
     evidence: list[Evidence],
     retrieved_runbooks: list[RetrievedRunbook],
+    retrieved_knowledge_documents: list[RetrievedKnowledgeDocument],
     reasoner: ReasonerMetadata,
 ) -> InvestigationResult:
     """Return collected observations without inventing a root cause or action."""
@@ -202,6 +240,7 @@ def _build_inconclusive_result(
         # The result owns its list container; list() preserves collection order.
         evidence=list(evidence),
         retrieved_runbooks=list(retrieved_runbooks),
+        retrieved_knowledge_documents=list(retrieved_knowledge_documents),
         reasoner=reasoner,
     )
 
@@ -280,6 +319,7 @@ def verify_hypothesis(
     hypothesis: Hypothesis,
     evidence: list[Evidence],
     retrieved_runbooks: list[RetrievedRunbook],
+    retrieved_knowledge_documents: list[RetrievedKnowledgeDocument] | None = None,
     reasoner: ReasonerMetadata | None = None,
 ) -> InvestigationResult:
     """Promote a hypothesis after checking only that its citations exist.
@@ -328,5 +368,6 @@ def verify_hypothesis(
         evidence=list(evidence),
         # Retrieved guidance remains separate from observed and cited evidence.
         retrieved_runbooks=list(retrieved_runbooks),
+        retrieved_knowledge_documents=list(retrieved_knowledge_documents or []),
         reasoner=reasoner or deterministic_reasoner_metadata(),
     )

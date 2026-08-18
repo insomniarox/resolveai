@@ -34,6 +34,14 @@ export interface RuntimeIncidentBundle {
   schema_version: 1;
   incident: Incident;
   evidence: Evidence[];
+  knowledge_documents?: KnowledgeDocument[];
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  content_type: "text/plain" | "text/markdown";
+  content: string;
 }
 
 export interface RetrievedRunbook {
@@ -41,6 +49,10 @@ export interface RetrievedRunbook {
   title: string;
   service: string;
   content: string;
+  similarity_score: number;
+}
+
+export interface RetrievedKnowledgeDocument extends KnowledgeDocument {
   similarity_score: number;
 }
 
@@ -62,6 +74,7 @@ interface InvestigationResultBase {
   incident_id: string;
   evidence: Evidence[];
   retrieved_runbooks: RetrievedRunbook[];
+  retrieved_knowledge_documents: RetrievedKnowledgeDocument[];
   reasoner: ReasonerMetadata;
 }
 

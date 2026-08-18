@@ -7,7 +7,8 @@ transient runtime bundles through a server-selected GPT-5.6 Luna provider. The
 runtime supports OpenRouter or direct OpenAI configuration without exposing a
 provider picker or user keys. Both paths retrieve related runbook knowledge from
 PostgreSQL; retrieved similarity is neither causal evidence nor diagnosis
-confidence.
+confidence. Current source code also accepts optional bounded text or Markdown
+knowledge documents for one request-scoped runtime retrieval operation.
 
 ## Run locally
 
@@ -72,13 +73,25 @@ curl -X POST http://127.0.0.1:8000/runtime/investigate \
         "summary": "Checkout timed out while acquiring a database connection.",
         "details": {}
       }
+    ],
+    "knowledge_documents": [
+      {
+        "id": "DOC-901",
+        "title": "Checkout database session policy",
+        "content_type": "text/markdown",
+        "content": "Checkout requires at least 20 reusable database sessions during normal traffic. A smaller pool can cause callers to wait before SQL dispatch."
+      }
     ]
   }'
 ```
 
-The runtime bundle is validated, sent to the configured external inference
-provider, investigated, returned, and discarded by ResolveAI. It is not inserted
-into the fixture set or PostgreSQL. Copy `.env.example` to `.env`, keep
+The runtime bundle is validated and investigated through the configured external
+inference provider. Incident input and results are not stored. Optional knowledge
+documents are embedded locally, stored atomically under a server-generated scope,
+retrieved only for that request, and deleted when it finishes. An interrupted
+scope becomes ineligible after 15 minutes and is purged by a later ingestion. No
+runtime input enters the fixture set or frozen runbook corpus. Copy `.env.example`
+to `.env`, keep
 `RESOLVEAI_RUNTIME_PROVIDER=openrouter`, and set a capped `OPENROUTER_API_KEY`.
 To use direct OpenAI instead, select `openai` and set `OPENAI_API_KEY`. There is
 no automatic provider or fake fallback.
@@ -97,10 +110,11 @@ DATABASE_URL=postgresql://resolveai:resolveai@localhost:5432/resolveai \
 Each completed investigation prints an `investigation` span with
 `retrieve_runbooks` and `generate_hypothesis` children. `retrieve_runbooks`
 contains `generate_query_embedding` and `query_runbooks`; diagnosed results also
-include `verify_citations`. The output contains trace and parent IDs, start/end
-times, operational attributes, and standard exception details for genuine
-failures. Export is batched and queued spans flush during normal process
-shutdown.
+include `verify_citations`. A runtime request with documents also includes
+`retrieve_runtime_knowledge`, with query-embedding and scoped PostgreSQL children.
+The output contains trace and parent IDs, start/end times, operational attributes,
+and standard exception details for genuine failures. Export is batched and queued
+spans flush during normal process shutdown.
 
 ## Run the application with Docker
 
@@ -235,10 +249,16 @@ The runtime adapter joins the same flow after normalization:
 ```text
 POST /runtime/investigate
 → validate schema version, sizes, IDs, timestamps, and supported field types
-→ adapt RuntimeIncidentBundle into Incident + Evidence[]
+→ adapt RuntimeIncidentBundle into Incident + Evidence[] + KnowledgeDocument[]
+→ if documents exist:
+   → generate one whole-document embedding per document
+   → atomically store them under a server-generated short-lived scope
 → investigate_evidence()
+   → retrieve frozen Runbook Top-3
+   → retrieve current-scope KnowledgeDocument Top-3
+   → keep both reference lists separate from Evidence
 → return diagnosed or inconclusive InvestigationResult
-→ discard the request data
+→ delete the runtime knowledge scope
 ```
 
 ### 1. The API receives an incident ID
@@ -1081,6 +1101,30 @@ introduced.
 
 Phase 7.2 exit status: complete, deployed, and live-provider verified. Phase 7.3
 scoped runtime knowledge ingestion is next.
+
+## Phase 7.3 — Scoped runtime knowledge ingestion
+
+The version-1 runtime bundle now accepts zero to five optional `knowledge_documents`.
+Each document is plain text or Markdown, limited to 8,000 characters with a
+20,000-character aggregate limit. Document IDs must be unique and cannot overlap
+Evidence IDs.
+
+Runtime documents use a separate PostgreSQL table keyed by a server-generated
+UUID scope. FastEmbed generates all whole-document vectors before PostgreSQL
+insertion, and one transaction inserts the complete set. The non-null embedding
+column and transaction rollback prevent partially ready documents from becoming
+retrievable. Runtime search filters by the exact unexpired scope; the unchanged
+runbook search reads only the frozen `runbooks` table.
+
+One runtime investigation receives the existing frozen Runbook Top-3 and a
+separate current-scope KnowledgeDocument Top-3. The model prompt labels uploaded
+documents as untrusted reference content, and deterministic citation verification
+continues to accept only observed Evidence IDs. The UI displays retrieved runtime
+documents separately and renders Markdown as inert text rather than HTML.
+
+Phase 7.3 is implemented and verified locally. Applying the idempotent table SQL,
+deploying the API before the updated web response validator, and completing one
+public live-provider/browser smoke remain deployment tasks.
 
 ## Verify
 

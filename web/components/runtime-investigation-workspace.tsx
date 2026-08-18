@@ -21,39 +21,47 @@ const exampleBundle: RuntimeIncidentBundle = {
   schema_version: 1,
   incident: {
     id: "USER-INC-901",
-    title: "Checkout requests timing out",
-    description: "A previously unseen checkout service is degraded.",
-    service: "checkout-runtime-service",
+    title: "Invoice delivery receipts are stalled",
+    description: "Invoices remain pending after the signing provider accepts them.",
+    service: "invoice-delivery-runtime-service",
     started_at: "2026-08-17T09:00:00Z",
   },
   evidence: [
     {
-      id: "USER-DEP-901:database_connection_pool_size",
-      source: "deployment",
-      kind: "configuration_change",
-      observed_at: "2026-08-17T08:55:00Z",
-      summary: "A deployment reduced the database connection pool.",
-      details: {
-        setting: "database_connection_pool_size",
-        previous_value: 30,
-        new_value: 6,
-      },
-    },
-    {
       id: "USER-LOG-901",
       source: "log",
-      kind: "database_connection_timeout",
+      kind: "upstream_request_failed",
       observed_at: "2026-08-17T09:00:10Z",
-      summary: "Checkout timed out while acquiring a database connection.",
-      details: {},
+      summary: "Signing receipt callbacks returned HTTP 503.",
+      details: {
+        endpoint: "signing.partner.example/receipt",
+        status_code: 503,
+      },
     },
     {
       id: "USER-LOG-902",
       source: "log",
-      kind: "http_request_failed",
-      observed_at: "2026-08-17T09:00:11Z",
-      summary: "POST /checkout returned HTTP 500.",
-      details: { status_code: 500 },
+      kind: "notification_queue_metrics",
+      observed_at: "2026-08-17T09:00:15Z",
+      summary: "1,240 invoices remained in SIGNED_PENDING_RECEIPT.",
+      details: { pending_count: 1240 },
+    },
+    {
+      id: "USER-LOG-903",
+      source: "log",
+      kind: "upstream_health_check",
+      observed_at: "2026-08-17T09:00:20Z",
+      summary: "The signing provider upload health check remained healthy.",
+      details: { status_code: 200 },
+    },
+  ],
+  knowledge_documents: [
+    {
+      id: "DOC-901",
+      title: "Invoice signing lifecycle and probe coverage",
+      content_type: "text/markdown",
+      content:
+        "# Signing lifecycle\n\nSIGNED_PENDING_RECEIPT means the provider accepted the invoice, but only a successful receipt callback completes delivery. Delivery workers no longer own invoices in this state. The upload health check does not test the receipt callback endpoint.",
     },
   ],
 };
@@ -141,8 +149,9 @@ export function RuntimeInvestigationWorkspace() {
           }}
         >
           <p className="runtime-guidance">
-            Supply schema version 1, one incident, and 1–50 normalized Evidence
-            items. IDs must be unique and timestamps must include a UTC offset.
+            Supply schema version 1, one incident, 1–50 normalized Evidence items,
+            and optionally up to five bounded text or Markdown knowledge documents.
+            IDs must be unique and timestamps must include a UTC offset.
           </p>
           <label htmlFor="runtime-bundle">Incident bundle JSON</label>
           <textarea
@@ -154,9 +163,11 @@ export function RuntimeInvestigationWorkspace() {
             value={bundleText}
           />
           <p className="runtime-limit-note" id="runtime-limit-note">
-            This path sends the bundle to the displayed external inference
-            provider. ResolveAI does not persist the input or result; the provider
-            may process or retain data under its own policy. Do not submit secrets
+            ResolveAI stores supplied knowledge only under this request&apos;s
+            short-lived retrieval scope and removes it when the request finishes.
+            Interrupted scopes become ineligible after 15 minutes. Incident input
+            and results are not retained. The displayed provider may process or
+            retain the reasoning input under its own policy. Do not submit secrets
             or confidential production data.
           </p>
           {reasonerError && (

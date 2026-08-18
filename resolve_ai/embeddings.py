@@ -26,9 +26,14 @@ def _get_embedding_model() -> TextEmbedding:
     return TextEmbedding(model_name=EMBEDDING_MODEL_NAME)
 
 
-def build_runbook_embedding_text(title: str, content: str) -> str:
-    """Create the stable text representation embedded for one runbook."""
+def build_document_embedding_text(title: str, content: str) -> str:
+    """Create the shared text representation embedded for reference knowledge."""
     return f"Title: {title}\n\nContent: {content}"
+
+
+def build_runbook_embedding_text(title: str, content: str) -> str:
+    """Preserve the named runbook helper used by corpus setup and its tests."""
+    return build_document_embedding_text(title, content)
 
 
 def _ordinary_python_vector(model_vector: _ModelVector) -> list[float]:
@@ -44,6 +49,6 @@ def generate_query_embedding(query: str) -> list[float]:
 
 
 def generate_document_embeddings(documents: list[str]) -> list[list[float]]:
-    """Embed runbook documents in one batch using the passage representation."""
+    """Embed reference documents in one batch using the passage representation."""
     model_vectors = _get_embedding_model().passage_embed(documents)
     return [_ordinary_python_vector(vector) for vector in model_vectors]

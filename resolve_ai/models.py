@@ -17,7 +17,7 @@ The models follow the data through these stages:
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -159,6 +159,28 @@ class RetrievedRunbook(BaseModel):
     similarity_score: float
 
 
+class KnowledgeDocument(BaseModel):
+    """Represent bounded reference knowledge supplied for one runtime request."""
+
+    id: str
+    title: str
+    content_type: Literal["text/plain", "text/markdown"]
+    content: str
+
+
+class RetrievedKnowledgeDocument(KnowledgeDocument):
+    """Add query relevance to one request-scoped knowledge document.
+
+    Runtime knowledge remains separate from observed Evidence and from the
+    immutable runbook corpus. Its score is retrieval relevance only.
+    """
+
+    similarity_score: float
+
+
+RetrievedReferenceKnowledge = RetrievedRunbook | RetrievedKnowledgeDocument
+
+
 class Hypothesis(BaseModel):
     """Represent unverified model-shaped output.
 
@@ -220,4 +242,7 @@ class InvestigationResult(BaseModel):
     diagnosis: Diagnosis | None
     evidence: list[Evidence]
     retrieved_runbooks: list[RetrievedRunbook]
+    retrieved_knowledge_documents: list[RetrievedKnowledgeDocument] = Field(
+        default_factory=list
+    )
     reasoner: ReasonerMetadata = Field(default_factory=deterministic_reasoner_metadata)

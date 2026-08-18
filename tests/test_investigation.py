@@ -1,6 +1,7 @@
 """Exercise domain behavior directly, independently from FastAPI."""
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 
@@ -11,6 +12,7 @@ from resolve_ai.investigation import (
     build_runbook_query,
     inspect_deployments,
     inspect_logs,
+    investigate_evidence,
     investigate_incident,
     verify_hypothesis,
 )
@@ -20,6 +22,7 @@ from resolve_ai.models import (
     EvidenceSource,
     Hypothesis,
     InvestigationStatus,
+    RetrievedKnowledgeDocument,
     RetrievedRunbook,
     RootCauseLabel,
 )
@@ -234,6 +237,52 @@ def test_investigation_passes_incident_evidence_and_runbooks_to_reasoner(
     )
 
 
+def test_runtime_scope_adds_documents_without_merging_them_into_evidence(
+    monkeypatch,
+) -> None:
+    context = get_incident_context("INC-001")
+    assert context is not None
+    evidence = inspect_logs(context) + inspect_deployments(context)
+    runbook = _retrieved_runbook("RUN-001", 0.8)
+    document = RetrievedKnowledgeDocument(
+        id="DOC-901",
+        title="Runtime guide",
+        content_type="text/plain",
+        content="Request-scoped reference knowledge.",
+        similarity_score=0.9,
+    )
+    received_knowledge: list = []
+    scope_id = UUID("12345678-1234-5678-1234-567812345678")
+
+    monkeypatch.setattr(
+        "resolve_ai.investigation.semantic_search_runbooks",
+        lambda database_url, query, limit: [runbook],
+    )
+    monkeypatch.setattr(
+        "resolve_ai.investigation.semantic_search_runtime_knowledge_documents",
+        lambda database_url, scope_id, query, limit: [document],
+    )
+
+    def reasoner(incident, supplied_evidence, retrieved_knowledge):
+        received_knowledge.extend(retrieved_knowledge)
+        return generate_hypothesis(supplied_evidence)
+
+    result = investigate_evidence(
+        incident=context.incident,
+        evidence=evidence,
+        database_url="postgresql://test",
+        hypothesis_generator=reasoner,
+        knowledge_scope_id=scope_id,
+    )
+
+    assert [item.id for item in received_knowledge] == ["RUN-001", "DOC-901"]
+    assert [item.id for item in result.retrieved_runbooks] == ["RUN-001"]
+    assert [item.id for item in result.retrieved_knowledge_documents] == ["DOC-901"]
+    assert "DOC-901" not in {item.id for item in result.evidence}
+    assert result.diagnosis is not None
+    assert "DOC-901" not in result.diagnosis.supporting_evidence_ids
+
+
 def test_retrieval_failure_is_not_mislabeled_as_inconclusive(monkeypatch) -> None:
     context = get_incident_context("INC-003")
     assert context is not None
@@ -401,6 +450,35 @@ def test_verification_rejects_a_citation_that_does_not_exist() -> None:
 
     with pytest.raises(UnknownEvidenceError, match="EVIDENCE-DOES-NOT-EXIST"):
         verify_hypothesis(context.incident.id, hypothesis, evidence, [])
+
+
+def test_verification_does_not_treat_runtime_knowledge_as_evidence() -> None:
+    context = get_incident_context("INC-001")
+    assert context is not None
+    evidence = inspect_logs(context) + inspect_deployments(context)
+    document = RetrievedKnowledgeDocument(
+        id="DOC-901",
+        title="Runtime guide",
+        content_type="text/plain",
+        content="Reference knowledge is not an observed fact.",
+        similarity_score=0.9,
+    )
+    hypothesis = Hypothesis(
+        root_cause_label=RootCauseLabel.CONNECTION_POOL_EXHAUSTION,
+        probable_root_cause="An unverified cause.",
+        cited_evidence_ids=["DOC-901"],
+        confidence=0.5,
+        recommended_remediation="Review the incident manually.",
+    )
+
+    with pytest.raises(UnknownEvidenceError, match="DOC-901"):
+        verify_hypothesis(
+            context.incident.id,
+            hypothesis,
+            evidence,
+            [],
+            [document],
+        )
 
 
 def test_verification_copies_ordered_lists_into_the_domain_result() -> None:

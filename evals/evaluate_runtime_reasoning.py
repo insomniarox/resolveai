@@ -64,7 +64,7 @@ def evaluate_runtime_cases(
     results: list[RuntimeReasoningResult] = []
     for repeat in range(1, repeats + 1):
         for case in cases:
-            incident, evidence = case.bundle.to_domain()
+            incident, evidence, _ = case.bundle.to_domain()
             try:
                 investigation = investigate_evidence(
                     incident=incident,

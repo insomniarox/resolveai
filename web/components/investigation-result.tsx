@@ -1,5 +1,6 @@
 import { EvidenceList } from "@/components/evidence-list";
 import { ReferenceKnowledgeList } from "@/components/reference-knowledge-list";
+import { RuntimeKnowledgeList } from "@/components/runtime-knowledge-list";
 import type { InvestigationResult as InvestigationResultData } from "@/lib/types";
 
 interface InvestigationResultProps {
@@ -97,6 +98,9 @@ export function InvestigationResult({ result }: InvestigationResultProps) {
         supportingEvidenceIds={supportingEvidenceIds}
       />
       <ReferenceKnowledgeList runbooks={result.retrieved_runbooks} />
+      {result.retrieved_knowledge_documents.length > 0 && (
+        <RuntimeKnowledgeList documents={result.retrieved_knowledge_documents} />
+      )}
     </div>
   );
 }
