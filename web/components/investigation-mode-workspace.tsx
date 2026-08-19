@@ -44,7 +44,7 @@ export function InvestigationModeWorkspace() {
         <p className="path-description">
           {mode === "guided"
             ? "Prepared synthetic fixtures provide a fast, deterministic architecture tour."
-            : "Paste one bounded version-1 incident bundle. It is processed transiently and not saved."}
+            : "Paste one bounded version-1 incident bundle. Process it transiently, or explicitly save up to two one-hour provenance snapshots for comparison."}
         </p>
       </section>
 

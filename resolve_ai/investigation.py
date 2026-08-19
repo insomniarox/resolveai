@@ -37,7 +37,7 @@ from resolve_ai.retrieval import (
     semantic_search_runtime_knowledge_documents,
 )
 
-_RUNBOOK_RETRIEVAL_LIMIT = 3
+RUNBOOK_RETRIEVAL_LIMIT = 3
 tracer = trace.get_tracer(__name__)
 
 
@@ -95,13 +95,13 @@ def investigate_evidence(
             "retrieve_runbooks",
             attributes={
                 "resolveai.retrieval.strategy": "semantic",
-                "resolveai.retrieval.limit": _RUNBOOK_RETRIEVAL_LIMIT,
+                "resolveai.retrieval.limit": RUNBOOK_RETRIEVAL_LIMIT,
             },
         ) as retrieval_span:
             retrieved_runbooks = semantic_search_runbooks(
                 database_url=database_url,
                 query=retrieval_query,
-                limit=_RUNBOOK_RETRIEVAL_LIMIT,
+                limit=RUNBOOK_RETRIEVAL_LIMIT,
             )
             retrieval_span.set_attribute(
                 "resolveai.retrieval.result_count",
@@ -118,7 +118,7 @@ def investigate_evidence(
                 "retrieve_runtime_knowledge",
                 attributes={
                     "resolveai.retrieval.strategy": "semantic",
-                    "resolveai.retrieval.limit": _RUNBOOK_RETRIEVAL_LIMIT,
+                    "resolveai.retrieval.limit": RUNBOOK_RETRIEVAL_LIMIT,
                 },
             ) as runtime_retrieval_span:
                 retrieved_knowledge_documents = (
@@ -126,7 +126,7 @@ def investigate_evidence(
                         database_url=database_url,
                         scope_id=knowledge_scope_id,
                         query=retrieval_query,
-                        limit=_RUNBOOK_RETRIEVAL_LIMIT,
+                        limit=RUNBOOK_RETRIEVAL_LIMIT,
                     )
                 )
                 runtime_retrieval_span.set_attribute(

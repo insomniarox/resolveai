@@ -24,6 +24,10 @@ OPENAI_REASONING_MODEL = "gpt-5.6-luna"
 MODEL_REASONING_EFFORT = "medium"
 MODEL_MAX_OUTPUT_TOKENS = 4_000
 MODEL_TIMEOUT_SECONDS = 30.0
+# Bump these identifiers when the runtime instructions or parsed decision shape
+# changes so old saved runs remain explainable beside new ones.
+RUNTIME_PROMPT_VERSION = "runtime-investigation-v1"
+RUNTIME_OUTPUT_SCHEMA_VERSION = "runtime-reasoning-decision-v1"
 
 _BENCHMARK_SYSTEM_INSTRUCTIONS = """You investigate synthetic software incidents.
 

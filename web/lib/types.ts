@@ -93,3 +93,54 @@ export interface InconclusiveInvestigationResult
 export type InvestigationResult =
   | DiagnosedInvestigationResult
   | InconclusiveInvestigationResult;
+
+export type RuntimeFailureCode =
+  | "runtime_knowledge_unavailable"
+  | "reasoner_timeout"
+  | "invalid_citations"
+  | "invalid_reasoner_output"
+  | "reasoner_unavailable";
+
+export interface RuntimeExecutionMetadata {
+  application_version: string;
+  prompt_version: string;
+  output_schema_version: string;
+  retrieval_strategy: "semantic";
+  retrieval_limit: number;
+  embedding_model: string;
+  reasoning_effort: string;
+  max_output_tokens: number;
+  timeout_seconds: number;
+}
+
+export interface InvestigationRunSnapshot {
+  schema_version: 1;
+  bundle: RuntimeIncidentBundle;
+  retrieved_runbooks: RetrievedRunbook[];
+  retrieved_knowledge_documents: RetrievedKnowledgeDocument[];
+  investigation_result: InvestigationResult | null;
+  failure_code: RuntimeFailureCode | null;
+  reasoner: ReasonerMetadata;
+  execution: RuntimeExecutionMetadata;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+}
+
+export interface InvestigationRun {
+  id: string;
+  created_at: string;
+  expires_at: string;
+  outcome: "completed" | "failed";
+  snapshot: InvestigationRunSnapshot;
+}
+
+export interface CreatedInvestigationRun {
+  run: InvestigationRun;
+  capability_token: string;
+}
+
+export interface SavedRuntimeRun {
+  run: InvestigationRun;
+  capabilityToken: string;
+}

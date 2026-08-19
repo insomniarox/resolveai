@@ -251,6 +251,203 @@ h4 {
   padding: 1.25rem 1.25rem 0;
 }
 
+.saved-runs {
+  margin-top: 1.25rem;
+}
+
+.saved-runs-heading,
+.comparison-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.saved-runs-heading {
+  padding: 1.25rem 1.25rem 0;
+}
+
+.comparison-guidance {
+  max-width: 58rem;
+  margin: 0;
+  padding: 0.75rem 1.25rem 1.25rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.comparison-signals {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.6fr) minmax(260px, 1.4fr);
+  gap: 0.75rem 1.25rem;
+  margin: 0 1.25rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  background: var(--panel-subtle);
+}
+
+.comparison-signals > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.comparison-signals ul {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comparison-signals li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  background: #ffffff;
+  font-size: 0.76rem;
+}
+
+.comparison-signals strong {
+  border-radius: 999px;
+  padding: 0.16rem 0.4rem;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.comparison-signal-same {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.comparison-signal-different {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.comparison-signal-not-applicable {
+  color: var(--muted);
+  background: #edf1f5;
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.comparison-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem;
+  background: var(--panel-subtle);
+}
+
+.comparison-card-heading code {
+  display: block;
+  margin-top: 0.35rem;
+}
+
+.comparison-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 1rem 0;
+}
+
+.comparison-facts > div,
+.comparison-diagnosis,
+.comparison-references,
+.comparison-outcome {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0.75rem;
+  background: #ffffff;
+}
+
+.comparison-facts dd {
+  overflow-wrap: anywhere;
+}
+
+.execution-details {
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0.75rem;
+  background: #ffffff;
+}
+
+.execution-details summary {
+  color: #314259;
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.execution-details dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.75rem 0 0;
+}
+
+.execution-details dd {
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.comparison-diagnosis,
+.comparison-references {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.comparison-diagnosis > span,
+.comparison-references > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.comparison-diagnosis p,
+.comparison-references p,
+.comparison-outcome {
+  margin: 0;
+  color: #465466;
+  font-size: 0.84rem;
+}
+
+.comparison-references ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #465466;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+}
+
+.danger-button {
+  color: var(--red);
+}
+
+.saved-runs-error {
+  margin: 1.25rem 0 0;
+  border: 1px solid #edcaca;
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  color: var(--red);
+  background: var(--red-soft);
+}
+
 .panel {
   overflow: hidden;
   border: 1px solid rgba(184, 196, 210, 0.8);
@@ -736,12 +933,21 @@ dd {
   }
 
   .dashboard-grid,
-  .runtime-grid {
+  .runtime-grid,
+  .comparison-grid {
     grid-template-columns: 1fr;
   }
 
   .path-switcher {
     grid-template-columns: 1fr;
+  }
+
+  .comparison-signals {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-signals ul {
+    grid-column: 1;
   }
 
   .incidents-panel,
@@ -777,14 +983,17 @@ dd {
   .context-heading-row,
   .section-heading-row,
   .item-heading-row,
-  .runtime-result-heading {
+  .runtime-result-heading,
+  .saved-runs-heading,
+  .comparison-card-heading {
     align-items: flex-start;
     flex-direction: column;
   }
 
   .context-metadata,
   .diagnosis-facts,
-  .item-metadata {
+  .item-metadata,
+  .comparison-facts {
     grid-template-columns: 1fr;
   }
 
