@@ -873,14 +873,16 @@ question requiring those additions.
 > Span granularity should increase only when an existing span becomes too coarse
 > to answer a demonstrated operational question.
 
-Phases 3 through 7.4 are complete, and Phase 7.5 is implemented and locally
-verified on its feature branch. ResolveAI's CI passes on GitHub-hosted
+Phases 3 through 7.5 are complete. ResolveAI's CI passes on GitHub-hosted
 runners, and the Northflank deployment passed direct and browser-level
-verification for guided and runtime paths. The Phase 7.2 public runtime uses the
+verification for guided, transient runtime, and saved-run comparison paths. The
+Phase 7.2 public runtime uses the
 server-selected OpenRouter GPT-5.6 Luna reasoner; its capped provider secret,
 deployment, metadata disclosure, and live inference smoke test are verified.
 Phase 7.3 also passed scoped knowledge retrieval, cleanup, Evidence-only citation,
-same-origin, console, guided-path, and mobile checks.
+same-origin, console, guided-path, and mobile checks. Phase 7.5 passed the
+capability-protected two-run comparison and execution-provenance flow in the
+public deployment.
 
 ## Phase 6.2 — Continuous integration
 
@@ -1335,12 +1337,28 @@ why explainable comparison needs preserved prose, citations, retrieval context,
 reasoner identity, and timing rather than label equality alone. It is one capped
 local provider smoke, not a reliability or performance benchmark.
 
+Pull request #7 passed both backend and frontend checks for its push and
+pull-request runs and merged into `main` as `c32f287`. The idempotent schema was
+applied successfully, and Northflank continuous deployment built and deployed
+both the private API and public web service from that exact merge commit. Because
+both services had CD enabled, they rolled automatically rather than in a strict
+manual API-then-web sequence.
+
+Public verification on 2026-08-19 confirmed HTTP 200 for the application and
+same-origin incident API, the expected `openrouter/openai/gpt-5.6-luna` reasoner
+metadata, and a completed two-run saved comparison. The comparison preserved the
+same submitted identifiers, Evidence IDs, KnowledgeDocument IDs, outcome,
+citations, retrieval order, reasoner, and execution settings while truthfully
+showing differences in the raw label and retrieval scores. This is the intended
+behavior: exact signals report stored facts and leave semantic interpretation to
+the reviewer. The only browser console error was the existing non-material
+`/favicon.ico` 404.
+
 Phase 7.5 does not add accounts, workspaces, searchable history, mutable runs,
 normalized incident tables, background cleanup workers, event sourcing, label
 normalization, retrieval changes, or Phase 8 GitHub import behavior.
 
-Implementation status: complete and locally verified. Commit, GitHub PR/CI, and
-Northflank database → API → web deployment remain pending.
+Phase 7.5 exit status: complete, merged, deployed, and public-browser verified.
 
 ## Phase 7.6 — Runtime evaluation contract hardening plan
 
