@@ -7,8 +7,8 @@ transient runtime bundles through a server-selected GPT-5.6 Luna provider. The
 runtime supports OpenRouter or direct OpenAI configuration without exposing a
 provider picker or user keys. Both paths retrieve related runbook knowledge from
 PostgreSQL; retrieved similarity is neither causal evidence nor diagnosis
-confidence. Current source code also accepts optional bounded text or Markdown
-knowledge documents for one request-scoped runtime retrieval operation.
+confidence. The deployed runtime also accepts optional bounded text or Markdown
+knowledge documents for one request-scoped retrieval operation.
 
 ## Run locally
 
@@ -275,7 +275,9 @@ HTTP concerns such as returning status `404`, but it contains no diagnosis rules
 - deployment-history records.
 
 The fixture is an in-memory substitute for production log and deployment
-systems. PostgreSQL is used only for the runbook corpus in this milestone.
+systems. PostgreSQL persists the frozen runbook corpus and only the short-lived,
+request-scoped knowledge documents described by the runtime path; incidents and
+Evidence are not stored.
 
 ### 3. Raw records become evidence
 
@@ -737,7 +739,8 @@ uv run python -m evals.evaluate_runtime_reasoning \
 ```
 
 This command makes billable provider calls and is intentionally excluded from
-CI. The ordinary test suite never calls OpenAI or OpenRouter.
+CI. The ordinary test suite never calls OpenAI or OpenRouter. Phase 7.4 will keep
+this Phase 7.2 check intact and add a separately frozen runtime-ingestion suite.
 
 ### Known evaluation limitations
 
@@ -747,6 +750,8 @@ CI. The ordinary test suite never calls OpenAI or OpenRouter.
 - `INC-009` and `INC-010` were not perfectly stable with retrieval;
 - `INC-008` did not demonstrate retrieval value;
 - retrieval utility was measured only with GPT-5.6 Luna;
+- request-scoped knowledge ingestion has one successful production smoke but not
+  yet a repeatable frozen evaluation baseline;
 - no prompt optimization, model comparison, hybrid retrieval, reranking, or
   query rewriting was performed.
 
@@ -859,11 +864,13 @@ question requiring those additions.
 > Span granularity should increase only when an existing span becomes too coarse
 > to answer a demonstrated operational question.
 
-Phases 3 through 7.2 are complete. ResolveAI's CI passes on GitHub-hosted
+Phases 3 through 7.3 are complete. ResolveAI's CI passes on GitHub-hosted
 runners, and the Northflank deployment passed direct and browser-level
 verification for guided and runtime paths. The Phase 7.2 public runtime uses the
 server-selected OpenRouter GPT-5.6 Luna reasoner; its capped provider secret,
 deployment, metadata disclosure, and live inference smoke test are verified.
+Phase 7.3 also passed scoped knowledge retrieval, cleanup, Evidence-only citation,
+same-origin, console, guided-path, and mobile checks.
 
 ## Phase 6.2 — Continuous integration
 
@@ -873,7 +880,7 @@ same checks used locally.
 
 The backend job uses Python 3.13 and uv 0.11.6, verifies `uv.lock`, checks Python
 lint and formatting, and runs the deterministic pytest suite. The ordinary run
-does not configure PostgreSQL or model credentials, so the two tests marked as
+does not configure PostgreSQL or model credentials, so the three tests marked as
 PostgreSQL integrations remain skipped.
 
 The frontend job uses Node 24 and the pnpm 11.21.0 version declared in
@@ -1099,8 +1106,7 @@ guided path retained `deterministic/evidence-only-fake-v1`. No browser key,
 provider picker, automatic provider fallback, or persisted runtime input was
 introduced.
 
-Phase 7.2 exit status: complete, deployed, and live-provider verified. Phase 7.3
-scoped runtime knowledge ingestion is next.
+Phase 7.2 exit status: complete, deployed, and live-provider verified.
 
 ## Phase 7.3 — Scoped runtime knowledge ingestion
 
@@ -1122,9 +1128,36 @@ documents as untrusted reference content, and deterministic citation verificatio
 continues to accept only observed Evidence IDs. The UI displays retrieved runtime
 documents separately and renders Markdown as inert text rather than HTML.
 
-Phase 7.3 is implemented and verified locally. Applying the idempotent table SQL,
-deploying the API before the updated web response validator, and completing one
-public live-provider/browser smoke remain deployment tasks.
+The Phase 7.3 pull request passed both required CI checks and merged into `main`.
+The idempotent table addition was applied before the private API and public web
+deployments. A public OpenRouter/Luna investigation retrieved unseen `DOC-901`,
+returned only submitted Evidence IDs as citations, and left zero scoped rows
+after completion. Guided diagnosed/inconclusive paths, same-origin traffic, a
+clean browser console, and the 390px layout also passed.
+
+Phase 7.3 exit status: complete, deployed, and production-verified.
+
+## Phase 7.4 — Runtime evaluation slice
+
+Phase 7.4 will measure the existing runtime-ingestion baseline before changing
+retrieval. It will add a separate frozen dataset and evaluator covering relevant
+and confusable document ranking, insufficient Evidence, untrusted citation
+pressure, malformed bundles, cross-scope isolation, cleanup, and unchanged frozen
+runbook results. The original ten investigation cases, eighteen retrieval cases,
+and Phase 7.2 runtime-reasoning check remain unchanged.
+
+The deterministic layer will report runtime-document Top-1 and Top-3 behavior,
+validation rejection, scope leakage, cleanup, and frozen-corpus stability. An
+opt-in capped provider layer will run three repetitions by default and report
+status/root-cause accuracy, Evidence citation precision/recall, unsupported
+citations, correct abstention, repeat agreement, and system failures. Provider
+calls remain outside CI, and nondeterministic model misses remain measurements
+rather than regression-test failures.
+
+Phase 7.4 will not add API or UI fields, database schema, persistent runtime data,
+chunking, hybrid retrieval, reranking, query rewriting, background workers, or
+investigation provenance. A retrieval change requires a measured limitation from
+this baseline.
 
 ## Verify
 
