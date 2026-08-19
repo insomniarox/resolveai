@@ -739,8 +739,8 @@ uv run python -m evals.evaluate_runtime_reasoning \
 ```
 
 This command makes billable provider calls and is intentionally excluded from
-CI. The ordinary test suite never calls OpenAI or OpenRouter. Phase 7.4 will keep
-this Phase 7.2 check intact and add a separately frozen runtime-ingestion suite.
+CI. The ordinary test suite never calls OpenAI or OpenRouter. Phase 7.4 keeps
+this Phase 7.2 check intact beside its separately frozen runtime-ingestion suite.
 
 ### Known evaluation limitations
 
@@ -750,8 +750,10 @@ this Phase 7.2 check intact and add a separately frozen runtime-ingestion suite.
 - `INC-009` and `INC-010` were not perfectly stable with retrieval;
 - `INC-008` did not demonstrate retrieval value;
 - retrieval utility was measured only with GPT-5.6 Luna;
-- request-scoped knowledge ingestion has one successful production smoke but not
-  yet a repeatable frozen evaluation baseline;
+- the Phase 7.4 exact-label metric treats semantically similar open runtime labels
+  as different values and measured zero exact matches in its first live baseline;
+- runtime-document Top-1 accuracy was only 50% on two labeled Top-1 cases, while
+  all four required documents remained present in the Top-3;
 - no prompt optimization, model comparison, hybrid retrieval, reranking, or
   query rewriting was performed.
 
@@ -880,7 +882,7 @@ same checks used locally.
 
 The backend job uses Python 3.13 and uv 0.11.6, verifies `uv.lock`, checks Python
 lint and formatting, and runs the deterministic pytest suite. The ordinary run
-does not configure PostgreSQL or model credentials, so the three tests marked as
+does not configure PostgreSQL or model credentials, so the four tests marked as
 PostgreSQL integrations remain skipped.
 
 The frontend job uses Node 24 and the pnpm 11.21.0 version declared in
@@ -1139,25 +1141,71 @@ Phase 7.3 exit status: complete, deployed, and production-verified.
 
 ## Phase 7.4 — Runtime evaluation slice
 
-Phase 7.4 will measure the existing runtime-ingestion baseline before changing
-retrieval. It will add a separate frozen dataset and evaluator covering relevant
-and confusable document ranking, insufficient Evidence, untrusted citation
-pressure, malformed bundles, cross-scope isolation, cleanup, and unchanged frozen
-runbook results. The original ten investigation cases, eighteen retrieval cases,
-and Phase 7.2 runtime-reasoning check remain unchanged.
+Phase 7.4 adds `evals/runtime_ingestion_cases.json` as a separately frozen suite
+with five valid bundles, five malformed-input recipes, and one concurrent
+two-scope scenario. The valid cases cover direct and paraphrased retrieval,
+sufficient Evidence with irrelevant knowledge, insufficient Evidence with
+apparently useful knowledge, and untrusted instruction/citation pressure. The
+original ten investigation cases, eighteen retrieval cases, and Phase 7.2
+runtime-reasoning check remain byte-for-byte unchanged.
 
-The deterministic layer will report runtime-document Top-1 and Top-3 behavior,
-validation rejection, scope leakage, cleanup, and frozen-corpus stability. An
-opt-in capped provider layer will run three repetitions by default and report
-status/root-cause accuracy, Evidence citation precision/recall, unsupported
-citations, correct abstention, repeat agreement, and system failures. Provider
-calls remain outside CI, and nondeterministic model misses remain measurements
-rather than regression-test failures.
+`evals/evaluate_runtime_ingestion.py` runs two explicit layers. The deterministic
+layer validates raw bundles, stores and retrieves current-scope documents through
+real PostgreSQL/pgvector, cleans every generated scope, checks concurrent scope
+isolation, and compares all eighteen ordered frozen-runbook Top-3 results before
+and after. The optional live layer uses the configured runtime reasoner for three
+repetitions by default and retains every result or failure without retry or fake
+fallback.
 
-Phase 7.4 will not add API or UI fields, database schema, persistent runtime data,
-chunking, hybrid retrieval, reranking, query rewriting, background workers, or
-investigation provenance. A retrieval change requires a measured limitation from
-this baseline.
+Run the deterministic layer with:
+
+```bash
+uv run python -m evals.evaluate_runtime_ingestion \
+  --database-url postgresql://resolveai:resolveai@localhost:5432/resolveai
+```
+
+The first frozen semantic baseline measured:
+
+```text
+Runtime-document Top-1 accuracy:       1/2 (50%)
+Required-document Top-3 recall:        4/4 (100%)
+Malformed-bundle rejection:            5/5 (100%)
+Accidental malformed provider calls:   0
+Cross-scope leakage:                    0
+Post-cleanup retained rows:             0
+Frozen runbook results unchanged:       yes
+```
+
+The capped OpenRouter GPT-5.6 Luna run used three repetitions over all five valid
+cases, for fifteen results:
+
+```text
+Status accuracy:                        15/15 (100%)
+Exact root-cause label accuracy:         0/12 (0%)
+Correct abstention:                       3/3 (100%)
+Status + exact-label repeat agreement:    2/5 (40%)
+Unsupported attempted citations:           0
+Attempted KnowledgeDocument citations:     0
+Accepted unsupported citations:            0
+System failures:                            0
+Post-cleanup retained rows:                 0
+```
+
+The diagnosed outputs described the labeled causes and cited the expected
+Evidence, but the open runtime label varied in wording, such as three different
+normalized TLS-mismatch labels. The strict exact-label score therefore exposes a
+runtime-label/evaluation stability limitation; retrofitting aliases after seeing
+the results would make the frozen baseline less credible. Citation precision and
+recall are `N/A` under the existing rule that scores citations only for exact
+root-cause matches.
+
+No API, UI, database schema, retrieval algorithm, or production deployment
+changed. The 50% Top-1 result may motivate a later measured retrieval experiment,
+while exact-label instability may motivate a separately planned evaluation or
+runtime-contract decision. Phase 7.4 does not implement either response.
+
+Phase 7.4 exit status: complete and locally verified. Because shared product code
+did not change, no Northflank application deployment was required.
 
 ## Verify
 
