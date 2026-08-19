@@ -5,12 +5,15 @@ it translates an HTTP request into a call to our Python workflow, then translate
 the returned Pydantic model into JSON. The investigation itself remains in
 ``investigation.py`` so it can be understood and tested without running a server.
 
-The API has four operations:
+The API has seven operations:
 
 * ``GET /incidents`` lets callers discover the available synthetic incidents.
 * ``POST /incidents/{incident_id}/investigate`` runs the investigation workflow.
 * ``GET /runtime/reasoner`` discloses safe server-side model metadata.
 * ``POST /runtime/investigate`` accepts one transient versioned runtime bundle.
+* ``POST /runtime/runs`` explicitly saves one short-lived investigation.
+* ``GET /runtime/runs/{run_id}`` reads a run with its bearer capability.
+* ``DELETE /runtime/runs/{run_id}`` deletes a run with its bearer capability.
 
 Prepared-incident request flow:
 
@@ -20,39 +23,36 @@ Prepared-incident request flow:
 4. FastAPI serializes the returned ``InvestigationResult`` as JSON.
 """
 
-import logging
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from threading import BoundedSemaphore
-from uuid import UUID, uuid4
+from typing import Annotated
+from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, status
-from openai import (
-    APIConnectionError,
-    APIStatusError,
-    APITimeoutError,
-    AuthenticationError,
-    ContentFilterFinishReasonError,
-    LengthFinishReasonError,
-    PermissionDeniedError,
-    RateLimitError,
-)
-from pydantic import ValidationError
+from fastapi import FastAPI, Header, HTTPException, Response, status
 
+from resolve_ai import APPLICATION_VERSION
 from resolve_ai.fixtures import get_incident_context, list_incidents
-from resolve_ai.investigation import (
-    UnknownEvidenceError,
-    investigate_evidence,
-    investigate_incident,
+from resolve_ai.investigation import investigate_incident
+from resolve_ai.investigation_runs import (
+    CreatedInvestigationRun,
+    InvestigationRun,
+    InvestigationRunStorageError,
+    create_investigation_run,
+    delete_investigation_run,
+    get_investigation_run,
+    snapshot_from_attempt,
+    snapshot_from_failure,
 )
 from resolve_ai.models import Incident, InvestigationResult, ReasonerMetadata
-from resolve_ai.retrieval import (
-    RuntimeKnowledgeError,
-    delete_runtime_knowledge_scope,
-    store_runtime_knowledge_documents,
-)
 from resolve_ai.runtime_input import RuntimeIncidentBundle
+from resolve_ai.runtime_investigation import (
+    RuntimeFailureCode,
+    RuntimeInvestigationFailure,
+    execute_runtime_investigation,
+)
 from resolve_ai.runtime_reasoner import (
+    ConfiguredRuntimeReasoner,
     RuntimeReasonerConfigurationError,
     get_runtime_reasoner,
 )
@@ -62,10 +62,9 @@ configure_console_tracing()
 
 # Uvicorn imports this application object from ``resolve_ai.api:app`` when the
 # development server starts. Creating it does not start a server by itself.
-app = FastAPI(title="ResolveAI", version="0.1.0")
+app = FastAPI(title="ResolveAI", version=APPLICATION_VERSION)
 _runtime_reasoner_gate = BoundedSemaphore(value=1)
 _runtime_knowledge_retention = timedelta(minutes=15)
-logger = logging.getLogger(__name__)
 
 
 def _get_database_url() -> str:
@@ -74,6 +73,82 @@ def _get_database_url() -> str:
     if not database_url.strip():
         raise RuntimeError("DATABASE_URL must be set to investigate an incident")
     return database_url
+
+
+def _get_runtime_reasoner_or_503() -> ConfiguredRuntimeReasoner:
+    """Load the server reasoner without exposing configuration details."""
+    try:
+        return get_runtime_reasoner()
+    except RuntimeReasonerConfigurationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Runtime reasoning is not configured.",
+        ) from error
+
+
+def _acquire_runtime_reasoner() -> None:
+    """Reject overlapping provider work before an investigation begins."""
+    if not _runtime_reasoner_gate.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Runtime reasoning is busy. Please retry shortly.",
+        )
+
+
+def _runtime_failure_http_exception(
+    failure: RuntimeInvestigationFailure,
+) -> HTTPException:
+    """Preserve the transient endpoint's stable HTTP failure contract."""
+    responses = {
+        RuntimeFailureCode.RUNTIME_KNOWLEDGE_UNAVAILABLE: (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Runtime knowledge is temporarily unavailable.",
+        ),
+        RuntimeFailureCode.REASONER_TIMEOUT: (
+            status.HTTP_504_GATEWAY_TIMEOUT,
+            "The runtime reasoner timed out. Please retry.",
+        ),
+        RuntimeFailureCode.INVALID_CITATIONS: (
+            status.HTTP_502_BAD_GATEWAY,
+            "The runtime reasoner returned invalid evidence citations.",
+        ),
+        RuntimeFailureCode.INVALID_REASONER_OUTPUT: (
+            status.HTTP_502_BAD_GATEWAY,
+            "The runtime reasoner returned an invalid response.",
+        ),
+        RuntimeFailureCode.REASONER_UNAVAILABLE: (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The runtime reasoner is temporarily unavailable.",
+        ),
+    }
+    status_code, detail = responses[failure.code]
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+def _bearer_capability(authorization: str | None) -> str | None:
+    """Parse an exact bearer capability without placing it in a URL."""
+    if authorization is None:
+        return None
+    scheme, separator, token = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer" and token and " " not in token:
+        return token
+    return None
+
+
+def _run_not_found() -> HTTPException:
+    """Give missing and unauthorized callers the same non-disclosing response."""
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Investigation run was not found.",
+    )
+
+
+def _run_storage_unavailable() -> HTTPException:
+    """Hide PostgreSQL details behind a stable API response."""
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Investigation run storage is temporarily unavailable.",
+    )
 
 
 @app.get("/incidents", response_model=list[Incident])
@@ -85,13 +160,7 @@ def list_incidents_endpoint() -> list[Incident]:
 @app.get("/runtime/reasoner", response_model=ReasonerMetadata)
 def get_runtime_reasoner_endpoint() -> ReasonerMetadata:
     """Return safe metadata for the configured server-side runtime reasoner."""
-    try:
-        return get_runtime_reasoner().metadata
-    except RuntimeReasonerConfigurationError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Runtime reasoning is not configured.",
-        ) from error
+    return _get_runtime_reasoner_or_503().metadata
 
 
 @app.post(
@@ -127,83 +196,105 @@ def investigate_runtime_bundle_endpoint(
     bundle: RuntimeIncidentBundle,
 ) -> InvestigationResult:
     """Investigate one validated bundle without storing it or changing fixtures."""
-    try:
-        reasoner = get_runtime_reasoner()
-    except RuntimeReasonerConfigurationError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Runtime reasoning is not configured.",
-        ) from error
-
+    reasoner = _get_runtime_reasoner_or_503()
     database_url = _get_database_url()
-    incident, evidence, knowledge_documents = bundle.to_domain()
-    if not _runtime_reasoner_gate.acquire(blocking=False):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Runtime reasoning is busy. Please retry shortly.",
-        )
-
-    knowledge_scope_id: UUID | None = None
+    _acquire_runtime_reasoner()
     try:
-        if knowledge_documents:
-            knowledge_scope_id = uuid4()
-            store_runtime_knowledge_documents(
-                database_url=database_url,
-                scope_id=knowledge_scope_id,
-                documents=knowledge_documents,
-                expires_at=datetime.now(UTC) + _runtime_knowledge_retention,
-            )
-
-        return investigate_evidence(
-            incident=incident,
-            evidence=evidence,
+        attempt = execute_runtime_investigation(
+            bundle=bundle,
             database_url=database_url,
-            hypothesis_generator=reasoner.generate,
-            reasoner=reasoner.metadata,
-            knowledge_scope_id=knowledge_scope_id,
+            reasoner=reasoner,
+            knowledge_retention=_runtime_knowledge_retention,
         )
-    except RuntimeKnowledgeError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Runtime knowledge is temporarily unavailable.",
-        ) from error
-    except APITimeoutError as error:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="The runtime reasoner timed out. Please retry.",
-        ) from error
-    except UnknownEvidenceError as error:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The runtime reasoner returned invalid evidence citations.",
-        ) from error
-    except (
-        ValidationError,
-        RuntimeError,
-        LengthFinishReasonError,
-        ContentFilterFinishReasonError,
-    ) as error:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The runtime reasoner returned an invalid response.",
-        ) from error
-    except (
-        AuthenticationError,
-        PermissionDeniedError,
-        RateLimitError,
-        APIConnectionError,
-        APIStatusError,
-    ) as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The runtime reasoner is temporarily unavailable.",
-        ) from error
+    except RuntimeInvestigationFailure as failure:
+        raise _runtime_failure_http_exception(failure) from failure
     finally:
-        if knowledge_scope_id is not None:
-            try:
-                delete_runtime_knowledge_scope(database_url, knowledge_scope_id)
-            except RuntimeKnowledgeError:
-                # Expired rows are excluded from retrieval and purged by a later
-                # ingestion. Cleanup failure must not conceal the real outcome.
-                logger.error("Failed to delete a runtime knowledge scope")
         _runtime_reasoner_gate.release()
+    return attempt.result
+
+
+@app.post(
+    "/runtime/runs",
+    response_model=CreatedInvestigationRun,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_runtime_run_endpoint(
+    bundle: RuntimeIncidentBundle,
+) -> CreatedInvestigationRun:
+    """Explicitly execute and save one immutable, one-hour run snapshot."""
+    reasoner = _get_runtime_reasoner_or_503()
+    database_url = _get_database_url()
+    _acquire_runtime_reasoner()
+    try:
+        try:
+            attempt = execute_runtime_investigation(
+                bundle=bundle,
+                database_url=database_url,
+                reasoner=reasoner,
+                knowledge_retention=_runtime_knowledge_retention,
+            )
+        except RuntimeInvestigationFailure as failure:
+            snapshot = snapshot_from_failure(bundle, failure)
+        else:
+            snapshot = snapshot_from_attempt(bundle, attempt)
+    finally:
+        _runtime_reasoner_gate.release()
+
+    try:
+        return create_investigation_run(
+            database_url=database_url,
+            snapshot=snapshot,
+        )
+    except InvestigationRunStorageError as error:
+        raise _run_storage_unavailable() from error
+
+
+@app.get(
+    "/runtime/runs/{run_id}",
+    response_model=InvestigationRun,
+    status_code=status.HTTP_200_OK,
+)
+def get_runtime_run_endpoint(
+    run_id: UUID,
+    authorization: Annotated[str | None, Header()] = None,
+) -> InvestigationRun:
+    """Read an unexpired run using its bearer capability."""
+    capability_token = _bearer_capability(authorization)
+    if capability_token is None:
+        raise _run_not_found()
+    try:
+        run = get_investigation_run(
+            database_url=_get_database_url(),
+            run_id=run_id,
+            capability_token=capability_token,
+        )
+    except InvestigationRunStorageError as error:
+        raise _run_storage_unavailable() from error
+    if run is None:
+        raise _run_not_found()
+    return run
+
+
+@app.delete(
+    "/runtime/runs/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_runtime_run_endpoint(
+    run_id: UUID,
+    authorization: Annotated[str | None, Header()] = None,
+) -> Response:
+    """Delete an unexpired run using its bearer capability."""
+    capability_token = _bearer_capability(authorization)
+    if capability_token is None:
+        raise _run_not_found()
+    try:
+        deleted = delete_investigation_run(
+            database_url=_get_database_url(),
+            run_id=run_id,
+            capability_token=capability_token,
+        )
+    except InvestigationRunStorageError as error:
+        raise _run_storage_unavailable() from error
+    if not deleted:
+        raise _run_not_found()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

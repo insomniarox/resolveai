@@ -3,12 +3,14 @@
 ResolveAI is an AI incident investigation copilot whose current public runtime
 uses deliberately constructed synthetic operational data. The reviewer-facing
 API investigates three prepared incidents with a deterministic fake and accepts
-transient runtime bundles through a server-selected GPT-5.6 Luna provider. The
-runtime supports OpenRouter or direct OpenAI configuration without exposing a
-provider picker or user keys. Both paths retrieve related runbook knowledge from
-PostgreSQL; retrieved similarity is neither causal evidence nor diagnosis
-confidence. The deployed runtime also accepts optional bounded text or Markdown
-knowledge documents for one request-scoped retrieval operation.
+runtime bundles through a server-selected GPT-5.6 Luna provider. Runtime callers
+can keep the original transient behavior or explicitly save a capability-protected
+one-hour provenance snapshot for comparison. The runtime supports OpenRouter or
+direct OpenAI configuration without exposing a provider picker or user keys. Both
+paths retrieve related runbook knowledge from PostgreSQL; retrieved similarity is
+neither causal evidence nor diagnosis confidence. The runtime also accepts
+optional bounded text or Markdown knowledge documents for one request-scoped
+retrieval operation.
 
 ## Run locally
 
@@ -86,12 +88,17 @@ curl -X POST http://127.0.0.1:8000/runtime/investigate \
 ```
 
 The runtime bundle is validated and investigated through the configured external
-inference provider. Incident input and results are not stored. Optional knowledge
+inference provider. `POST /runtime/investigate` does not store incident input or
+results. `POST /runtime/runs` is the separate explicit retention path: it returns
+one public run ID and one capability token, stores only the token's SHA-256 hash,
+and retains an immutable snapshot for one hour. Pass the capability as an
+`Authorization: Bearer ...` credential to `GET` or `DELETE
+/runtime/runs/{run_id}`; there is no list or update endpoint. Optional knowledge
 documents are embedded locally, stored atomically under a server-generated scope,
-retrieved only for that request, and deleted when it finishes. An interrupted
-scope becomes ineligible after 15 minutes and is purged by a later ingestion. No
-runtime input enters the fixture set or frozen runbook corpus. Copy `.env.example`
-to `.env`, keep
+retrieved only for that request, and deleted when reasoning finishes even when the
+run snapshot is retained. An interrupted scope becomes ineligible after 15
+minutes and is purged by a later ingestion. No runtime input enters the fixture
+set or frozen runbook corpus. Copy `.env.example` to `.env`, keep
 `RESOLVEAI_RUNTIME_PROVIDER=openrouter`, and set a capped `OPENROUTER_API_KEY`.
 To use direct OpenAI instead, select `openai` and set `OPENAI_API_KEY`. There is
 no automatic provider or fake fallback.
@@ -866,7 +873,8 @@ question requiring those additions.
 > Span granularity should increase only when an existing span becomes too coarse
 > to answer a demonstrated operational question.
 
-Phases 3 through 7.3 are complete. ResolveAI's CI passes on GitHub-hosted
+Phases 3 through 7.4 are complete, and Phase 7.5 is implemented and locally
+verified on its feature branch. ResolveAI's CI passes on GitHub-hosted
 runners, and the Northflank deployment passed direct and browser-level
 verification for guided and runtime paths. The Phase 7.2 public runtime uses the
 server-selected OpenRouter GPT-5.6 Luna reasoner; its capped provider secret,
@@ -882,8 +890,9 @@ same checks used locally.
 
 The backend job uses Python 3.13 and uv 0.11.6, verifies `uv.lock`, checks Python
 lint and formatting, and runs the deterministic pytest suite. The ordinary run
-does not configure PostgreSQL or model credentials, so the four tests marked as
-PostgreSQL integrations remain skipped.
+does not configure PostgreSQL or model credentials, so the five tests marked as
+PostgreSQL integrations remain skipped. Phase 7.5 added the fifth integration for
+the saved-run capability lifecycle.
 
 The frontend job uses Node 24 and the pnpm 11.21.0 version declared in
 `web/package.json`. From `web/`, it installs the frozen dependency graph, checks
@@ -1199,13 +1208,169 @@ the results would make the frozen baseline less credible. Citation precision and
 recall are `N/A` under the existing rule that scores citations only for exact
 root-cause matches.
 
+### What the Phase 7.4 data suggests
+
+The bounded result supports four project-level conclusions:
+
+1. **Top-3 retrieval is currently sufficient for the reasoner boundary.** Every
+   required runtime document appeared in the supplied Top-3. The 50% Top-1 result
+   is a useful ranking weakness, but these five cases do not show that reranking,
+   hybrid search, chunking, or query rewriting would improve investigations.
+2. **The safety boundaries held in this slice.** Malformed data never reached
+   persistence or inference, scopes did not leak, document IDs were not accepted
+   as Evidence citations, and cleanup left no rows. This is evidence for the
+   current boundaries, not a production-scale security claim.
+3. **The model made stable status decisions but unstable exact labels.** The
+   diagnosed prose and Evidence citations described the expected causes, while
+   the open snake-case label changed wording. Exact runtime labels are therefore
+   not yet suitable as durable aggregation, equality, or comparison keys.
+4. **Raw provenance is more valuable than post-hoc normalization.** Saving the
+   exact input, ranked references, raw label, human-readable diagnosis, citations,
+   reasoner, and timing would allow later evaluation rules to be applied without
+   rewriting what the model originally returned.
+
+The sample is only five synthetic cases and fifteen provider results. It does not
+establish general model reliability, retrieval quality, or prompt-injection
+resistance. Phase 7.5 preserves these observations without trying to fix ranking
+or label semantics inside an unrelated persistence change.
+
 No API, UI, database schema, retrieval algorithm, or production deployment
 changed. The 50% Top-1 result may motivate a later measured retrieval experiment,
 while exact-label instability may motivate a separately planned evaluation or
 runtime-contract decision. Phase 7.4 does not implement either response.
 
-Phase 7.4 exit status: complete and locally verified. Because shared product code
-did not change, no Northflank application deployment was required.
+Phase 7.4 pull request #6 passed backend and frontend GitHub checks and merged.
+Because shared product code did not change, no Northflank application deployment
+was required. Phase 7.4 exit status: complete.
+
+## Phase 7.5 — Minimal investigation provenance
+
+Phase 7.5 answers one question:
+
+> Does short-lived immutable history make two runtime investigations materially
+> easier to explain and compare?
+
+The existing `POST /runtime/investigate` path remains transient. Persistence is
+an explicit caller action through `POST /runtime/runs`, which accepts the same
+bounded `RuntimeIncidentBundle`. This preserves the original privacy contract.
+
+One `investigation_runs` table stores a versioned JSON snapshot plus only the
+columns needed for possession-based access and lifecycle:
+
+```text
+id
+capability_token_hash
+created_at
+expires_at
+outcome                  completed | failed
+snapshot                 JSONB
+```
+
+The snapshot preserves submitted Incident, Evidence, and KnowledgeDocuments;
+ordered retrieved runbooks/documents and scores; completed diagnosed or
+inconclusive output or a stable failure code; the exact raw root-cause label and
+verified citations; reasoner identity; timestamps; and total latency. It is an
+immutable observation, not a normalized CRUD model. It also records the concrete
+application, prompt, output-schema, retrieval, embedding, reasoning-budget, and
+timeout settings that produced the run.
+
+The create response returns a public run ID and one token generated with
+`secrets.token_urlsafe(32)`. PostgreSQL stores only its SHA-256 digest. `GET` and
+`DELETE /runtime/runs/{run_id}` require the plaintext token as a bearer
+credential; missing, wrong, expired, and deleted capabilities share one 404.
+Runs expire after one hour, expired rows are excluded and opportunistically
+purged, and no list, update, scheduler, or worker exists.
+
+A structurally invalid bundle remains HTTP 422 and creates no row. A valid saved
+attempt records a completed/inconclusive result or one bounded failure code;
+provider exception text is not persisted. Storage failure returns a stable HTTP
+503 and does not claim a run exists. The transient endpoint keeps its established
+failure semantics. Both endpoints now call the same concrete runtime execution
+and request-scoped knowledge cleanup function.
+
+The UI discloses retention before execution, holds at most two `(run_id, token)`
+pairs only in React state, rejects cross-incident comparisons before creating a
+run, and requires explicit deletion before saving a third. It compares raw label,
+human-readable cause, citations, ordered retrieval IDs/scores, reasoner, outcome,
+latency, and execution settings. With two runs it computes only factual
+same/different signals for IDs, status, citations, retrieval, raw label, reasoner,
+and execution settings. It does not judge prose semantics, use label aliases, or
+call another model.
+
+The implementation remains deliberately concrete:
+
+- `resolve_ai/runtime_investigation.py` owns shared execution and cleanup;
+- `resolve_ai/investigation_runs.py` owns the snapshot and direct PostgreSQL
+  create/read/delete lifecycle plus its small execution-metadata record;
+- `database/init.sql` owns the idempotent table and expiry index;
+- FastAPI owns transport and stable HTTP translation;
+- the Next.js runtime workspace owns the two in-memory capabilities and explicit
+  comparison/deletion flow.
+
+Local verification passed:
+
+```text
+Python lint:                              passed
+Deterministic tests:                      104 passed, 5 skipped
+Real PostgreSQL integrations:             5 passed
+Frontend ESLint + TypeScript:             passed
+Next.js production build:                 passed
+Compose API/web build and startup:         passed
+Docker insta_ai two-run browser flow:      passed
+Browser-created run deletion:              2/2 immediate
+Verification rows remaining:               0
+```
+
+The live browser comparison reproduced Phase 7.4's central observation. Both
+runs used identical Evidence citations and ordered retrieval scores and described
+the same receipt-callback failure, but emitted different raw labels:
+
+```text
+signing_receipt_callback_service_unavailable
+signing_provider_receipt_callback_failure
+```
+
+The measured latencies were 4,425 ms and 3,712 ms. This directly demonstrates
+why explainable comparison needs preserved prose, citations, retrieval context,
+reasoner identity, and timing rather than label equality alone. It is one capped
+local provider smoke, not a reliability or performance benchmark.
+
+Phase 7.5 does not add accounts, workspaces, searchable history, mutable runs,
+normalized incident tables, background cleanup workers, event sourcing, label
+normalization, retrieval changes, or Phase 8 GitHub import behavior.
+
+Implementation status: complete and locally verified. Commit, GitHub PR/CI, and
+Northflank database → API → web deployment remain pending.
+
+## Phase 7.6 — Runtime evaluation contract hardening plan
+
+Phase 7.6 should answer:
+
+> Can ResolveAI measure causal correctness without pretending that one generated
+> snake-case label is a stable semantic identity?
+
+Keep this as a small evaluation phase:
+
+1. Add only a few frozen runtime cases for long documents, close distractors,
+   near-duplicates, and conflicting guidance. Preserve the current cases/hashes.
+2. Define human-authored expected causal facets—affected component, failure mode,
+   and operational effect—and forbidden claims before provider runs.
+3. Report status, abstention, citations, safety, exact-label accuracy, and repeat
+   agreement independently. Exact-label accuracy remains a stability diagnostic.
+4. Add a small blind human review of diagnosis prose against those frozen facets.
+   Do not add an LLM judge or post-hoc label aliases.
+5. Consider a versioned structured causal-facet output only if the larger baseline
+   proves machine-readable semantic comparison is needed. Preserve the raw label.
+
+Do not change semantic retrieval because Top-1 was 1/2. A retrieval experiment is
+justified only if required knowledge drops out of the Top-3 supplied to the
+reasoner, or a controlled comparison links ranking to a reasoning failure. Until
+then, retain semantic Top-3 and whole-document embeddings.
+
+This intentionally remains hobby-project sized: one modest dataset extension,
+one evaluator/report, and at most one later contract experiment. Accounts,
+taxonomy services, automated semantic judging, reranking infrastructure, and new
+vector systems remain out of scope.
 
 ## Verify
 

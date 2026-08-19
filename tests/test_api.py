@@ -1,5 +1,6 @@
 """Exercise the public HTTP contract without starting a real network server."""
 
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -7,9 +8,14 @@ from fastapi.testclient import TestClient
 from httpx import Request
 from openai import APITimeoutError
 
-from resolve_ai import api
+from resolve_ai import api, runtime_investigation
 from resolve_ai.api import app
 from resolve_ai.fake_model import generate_fake_hypothesis
+from resolve_ai.investigation_runs import (
+    CreatedInvestigationRun,
+    InvestigationRun,
+    InvestigationRunOutcome,
+)
 from resolve_ai.models import (
     Hypothesis,
     ReasonerMetadata,
@@ -79,6 +85,26 @@ def _add_runtime_document(bundle: dict) -> None:
             "content": "A checkout waits when every reusable session is assigned.",
         }
     ]
+
+
+def _created_run(snapshot, token: str = "capability-token-with-enough-entropy"):
+    """Build the storage result returned to API tests after execution."""
+    created_at = datetime(2026, 8, 19, 10, 0, tzinfo=UTC)
+    outcome = (
+        InvestigationRunOutcome.COMPLETED
+        if snapshot.investigation_result is not None
+        else InvestigationRunOutcome.FAILED
+    )
+    return CreatedInvestigationRun(
+        run=InvestigationRun(
+            id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+            created_at=created_at,
+            expires_at=created_at + timedelta(hours=1),
+            outcome=outcome,
+            snapshot=snapshot,
+        ),
+        capability_token=token,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -234,7 +260,7 @@ def test_runtime_bundle_retrieves_and_cleans_up_scoped_knowledge(monkeypatch) ->
         similarity_score=0.91,
     )
 
-    monkeypatch.setattr(api, "uuid4", lambda: scope_id)
+    monkeypatch.setattr(runtime_investigation, "uuid4", lambda: scope_id)
 
     def store_documents(**kwargs):
         calls["stored"] = kwargs
@@ -244,8 +270,16 @@ def test_runtime_bundle_retrieves_and_cleans_up_scoped_knowledge(monkeypatch) ->
         calls["deleted"] = (database_url, deleted_scope_id)
         return 1
 
-    monkeypatch.setattr(api, "store_runtime_knowledge_documents", store_documents)
-    monkeypatch.setattr(api, "delete_runtime_knowledge_scope", delete_scope)
+    monkeypatch.setattr(
+        runtime_investigation,
+        "store_runtime_knowledge_documents",
+        store_documents,
+    )
+    monkeypatch.setattr(
+        runtime_investigation,
+        "delete_runtime_knowledge_scope",
+        delete_scope,
+    )
     monkeypatch.setattr(
         "resolve_ai.investigation.semantic_search_runtime_knowledge_documents",
         lambda database_url, scope_id, query, limit: [retrieved_document],
@@ -265,13 +299,17 @@ def test_runtime_knowledge_failure_is_stable_503(monkeypatch) -> None:
     bundle = _runtime_bundle()
     _add_runtime_document(bundle)
     monkeypatch.setattr(
-        api,
+        runtime_investigation,
         "store_runtime_knowledge_documents",
         lambda **kwargs: (_ for _ in ()).throw(
             RuntimeKnowledgeError("database detail")
         ),
     )
-    monkeypatch.setattr(api, "delete_runtime_knowledge_scope", lambda *args: 0)
+    monkeypatch.setattr(
+        runtime_investigation,
+        "delete_runtime_knowledge_scope",
+        lambda *args: 0,
+    )
 
     response = client.post("/runtime/investigate", json=bundle)
 
@@ -343,9 +381,13 @@ def test_runtime_reasoner_timeout_is_stable_504(monkeypatch) -> None:
             generate=time_out,
         ),
     )
-    monkeypatch.setattr(api, "store_runtime_knowledge_documents", lambda **kwargs: 1)
     monkeypatch.setattr(
-        api,
+        runtime_investigation,
+        "store_runtime_knowledge_documents",
+        lambda **kwargs: 1,
+    )
+    monkeypatch.setattr(
+        runtime_investigation,
         "delete_runtime_knowledge_scope",
         lambda database_url, scope_id: deleted_scopes.append(scope_id) or 1,
     )
@@ -417,6 +459,154 @@ def test_runtime_bundle_can_return_an_honest_inconclusive_result() -> None:
     assert body["status"] == "inconclusive"
     assert body["diagnosis"] is None
     assert [item["id"] for item in body["evidence"]] == ["USER-LOG-902"]
+
+
+def test_runtime_run_explicitly_saves_a_complete_provenance_snapshot(
+    monkeypatch,
+) -> None:
+    saved: dict[str, object] = {}
+
+    def save_run(**kwargs):
+        saved.update(kwargs)
+        return _created_run(kwargs["snapshot"])
+
+    monkeypatch.setattr(api, "create_investigation_run", save_run)
+
+    response = client.post("/runtime/runs", json=_runtime_bundle())
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["capability_token"] == "capability-token-with-enough-entropy"
+    assert body["run"]["outcome"] == "completed"
+    snapshot = body["run"]["snapshot"]
+    assert snapshot["schema_version"] == 1
+    assert snapshot["bundle"]["incident"]["id"] == "USER-INC-901"
+    assert snapshot["investigation_result"]["diagnosis"]["root_cause_label"] == (
+        "connection_pool_exhaustion"
+    )
+    assert [item["id"] for item in snapshot["retrieved_runbooks"]] == [
+        "RUN-004",
+        "RUN-001",
+    ]
+    assert snapshot["failure_code"] is None
+    assert snapshot["reasoner"] == {
+        "provider": "openrouter",
+        "model": "openai/gpt-5.6-luna",
+    }
+    assert snapshot["execution"] == {
+        "application_version": "0.1.0",
+        "prompt_version": "runtime-investigation-v1",
+        "output_schema_version": "runtime-reasoning-decision-v1",
+        "retrieval_strategy": "semantic",
+        "retrieval_limit": 3,
+        "embedding_model": "BAAI/bge-small-en-v1.5",
+        "reasoning_effort": "medium",
+        "max_output_tokens": 4000,
+        "timeout_seconds": 30.0,
+    }
+    assert snapshot["duration_ms"] >= 0
+    assert saved["database_url"] == "postgresql://test"
+
+
+def test_runtime_run_saves_a_stable_failure_without_provider_details(
+    monkeypatch,
+) -> None:
+    def invalid_response(incident, evidence, retrieved_knowledge):
+        raise RuntimeError("provider secret should not be persisted")
+
+    monkeypatch.setattr(
+        api,
+        "get_runtime_reasoner",
+        lambda: ConfiguredRuntimeReasoner(
+            metadata=ReasonerMetadata(provider="openrouter", model="test-model"),
+            generate=invalid_response,
+        ),
+    )
+    monkeypatch.setattr(
+        api,
+        "create_investigation_run",
+        lambda **kwargs: _created_run(kwargs["snapshot"]),
+    )
+
+    response = client.post("/runtime/runs", json=_runtime_bundle())
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["run"]["outcome"] == "failed"
+    snapshot = body["run"]["snapshot"]
+    assert snapshot["investigation_result"] is None
+    assert snapshot["failure_code"] == "invalid_reasoner_output"
+    assert [item["id"] for item in snapshot["retrieved_runbooks"]] == [
+        "RUN-004",
+        "RUN-001",
+    ]
+    assert "provider secret" not in response.text
+
+
+def test_runtime_run_read_requires_the_matching_bearer_capability(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def save_run(**kwargs):
+        created = _created_run(kwargs["snapshot"])
+        captured["run"] = created.run
+        return created
+
+    monkeypatch.setattr(api, "create_investigation_run", save_run)
+    created = client.post("/runtime/runs", json=_runtime_bundle()).json()
+    run_id = created["run"]["id"]
+
+    def read_run(**kwargs):
+        captured["read"] = kwargs
+        if kwargs["capability_token"] != created["capability_token"]:
+            return None
+        return captured["run"]
+
+    monkeypatch.setattr(api, "get_investigation_run", read_run)
+
+    assert client.get(f"/runtime/runs/{run_id}").status_code == 404
+    assert (
+        client.get(
+            f"/runtime/runs/{run_id}",
+            headers={"Authorization": "Bearer wrong-capability"},
+        ).status_code
+        == 404
+    )
+    response = client.get(
+        f"/runtime/runs/{run_id}",
+        headers={"Authorization": f"Bearer {created['capability_token']}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == run_id
+    assert captured["read"]["run_id"] == UUID(run_id)
+
+
+def test_runtime_run_delete_requires_capability_and_returns_no_content(
+    monkeypatch,
+) -> None:
+    run_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    deleted: dict[str, object] = {}
+
+    def delete_run(**kwargs):
+        deleted.update(kwargs)
+        return kwargs["capability_token"] == "matching-capability"
+
+    monkeypatch.setattr(api, "delete_investigation_run", delete_run)
+
+    wrong = client.delete(
+        f"/runtime/runs/{run_id}",
+        headers={"Authorization": "Bearer wrong-capability"},
+    )
+    assert wrong.status_code == 404
+
+    response = client.delete(
+        f"/runtime/runs/{run_id}",
+        headers={"Authorization": "Bearer matching-capability"},
+    )
+    assert response.status_code == 204
+    assert response.content == b""
+    assert deleted["run_id"] == run_id
 
 
 @pytest.mark.parametrize(

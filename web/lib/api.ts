@@ -4,10 +4,16 @@ import type {
   EvidenceKind,
   EvidenceSource,
   Incident,
+  InvestigationRun,
   InvestigationResult,
+  CreatedInvestigationRun,
+  KnowledgeDocument,
   ReasonerMetadata,
   RetrievedKnowledgeDocument,
   RetrievedRunbook,
+  RuntimeFailureCode,
+  RuntimeExecutionMetadata,
+  RuntimeIncidentBundle,
 } from "@/lib/types";
 
 export const UNEXPECTED_RESPONSE_MESSAGE =
@@ -43,6 +49,13 @@ const evidenceKinds = new Set<EvidenceKind>([
   "notification_worker_metrics",
   "http_request_failed",
   "configuration_change",
+]);
+const runtimeFailureCodes = new Set<RuntimeFailureCode>([
+  "runtime_knowledge_unavailable",
+  "reasoner_timeout",
+  "invalid_citations",
+  "invalid_reasoner_output",
+  "reasoner_unavailable",
 ]);
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -89,6 +102,30 @@ function isEvidence(value: unknown): value is Evidence {
     isDateTime(value.observed_at) &&
     typeof value.summary === "string" &&
     isEvidenceDetails(value.details)
+  );
+}
+
+function isKnowledgeDocument(value: unknown): value is KnowledgeDocument {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    (value.content_type === "text/plain" ||
+      value.content_type === "text/markdown") &&
+    typeof value.content === "string"
+  );
+}
+
+function isRuntimeIncidentBundle(value: unknown): value is RuntimeIncidentBundle {
+  return (
+    isRecord(value) &&
+    value.schema_version === 1 &&
+    isIncident(value.incident) &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every(isEvidence) &&
+    (value.knowledge_documents === undefined ||
+      (Array.isArray(value.knowledge_documents) &&
+        value.knowledge_documents.every(isKnowledgeDocument)))
   );
 }
 
@@ -145,6 +182,29 @@ function isReasonerMetadata(value: unknown): value is ReasonerMetadata {
   );
 }
 
+function isRuntimeExecutionMetadata(
+  value: unknown,
+): value is RuntimeExecutionMetadata {
+  return (
+    isRecord(value) &&
+    typeof value.application_version === "string" &&
+    typeof value.prompt_version === "string" &&
+    typeof value.output_schema_version === "string" &&
+    value.retrieval_strategy === "semantic" &&
+    typeof value.retrieval_limit === "number" &&
+    Number.isInteger(value.retrieval_limit) &&
+    value.retrieval_limit > 0 &&
+    typeof value.embedding_model === "string" &&
+    typeof value.reasoning_effort === "string" &&
+    typeof value.max_output_tokens === "number" &&
+    Number.isInteger(value.max_output_tokens) &&
+    value.max_output_tokens > 0 &&
+    typeof value.timeout_seconds === "number" &&
+    Number.isFinite(value.timeout_seconds) &&
+    value.timeout_seconds > 0
+  );
+}
+
 function isInvestigationResult(value: unknown): value is InvestigationResult {
   if (
     !isRecord(value) ||
@@ -173,6 +233,62 @@ function isInvestigationResult(value: unknown): value is InvestigationResult {
   );
   return value.diagnosis.supporting_evidence_ids.every((id) =>
     collectedEvidenceIds.has(id),
+  );
+}
+
+function isInvestigationRun(value: unknown): value is InvestigationRun {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !isDateTime(value.created_at) ||
+    !isDateTime(value.expires_at) ||
+    (value.outcome !== "completed" && value.outcome !== "failed") ||
+    !isRecord(value.snapshot)
+  ) {
+    return false;
+  }
+
+  const snapshot = value.snapshot;
+  const resultIsValid =
+    snapshot.investigation_result === null ||
+    isInvestigationResult(snapshot.investigation_result);
+  const failureIsValid =
+    snapshot.failure_code === null ||
+    (typeof snapshot.failure_code === "string" &&
+      runtimeFailureCodes.has(snapshot.failure_code as RuntimeFailureCode));
+  const hasResult = snapshot.investigation_result !== null;
+  const hasFailure = snapshot.failure_code !== null;
+
+  return (
+    snapshot.schema_version === 1 &&
+    isRuntimeIncidentBundle(snapshot.bundle) &&
+    Array.isArray(snapshot.retrieved_runbooks) &&
+    snapshot.retrieved_runbooks.every(isRetrievedRunbook) &&
+    Array.isArray(snapshot.retrieved_knowledge_documents) &&
+    snapshot.retrieved_knowledge_documents.every(isRetrievedKnowledgeDocument) &&
+    resultIsValid &&
+    failureIsValid &&
+    hasResult !== hasFailure &&
+    isReasonerMetadata(snapshot.reasoner) &&
+    isRuntimeExecutionMetadata(snapshot.execution) &&
+    isDateTime(snapshot.started_at) &&
+    isDateTime(snapshot.completed_at) &&
+    typeof snapshot.duration_ms === "number" &&
+    Number.isInteger(snapshot.duration_ms) &&
+    snapshot.duration_ms >= 0 &&
+    ((value.outcome === "completed" && hasResult) ||
+      (value.outcome === "failed" && hasFailure))
+  );
+}
+
+function isCreatedInvestigationRun(
+  value: unknown,
+): value is CreatedInvestigationRun {
+  return (
+    isRecord(value) &&
+    isInvestigationRun(value.run) &&
+    typeof value.capability_token === "string" &&
+    value.capability_token.length >= 32
   );
 }
 
@@ -259,6 +375,62 @@ export async function investigateRuntimeBundle(
     throw new UnexpectedResponseError();
   }
   return value;
+}
+
+export async function createRuntimeInvestigationRun(
+  bundle: unknown,
+): Promise<CreatedInvestigationRun> {
+  const value = await requestJson("/api/runtime/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bundle),
+  });
+  if (!isCreatedInvestigationRun(value)) {
+    throw new UnexpectedResponseError();
+  }
+  return value;
+}
+
+export async function fetchRuntimeInvestigationRun(
+  runId: string,
+  capabilityToken: string,
+): Promise<InvestigationRun> {
+  const value = await requestJson(
+    `/api/runtime/runs/${encodeURIComponent(runId)}`,
+    {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${capabilityToken}` },
+    },
+  );
+  if (!isInvestigationRun(value)) {
+    throw new UnexpectedResponseError();
+  }
+  return value;
+}
+
+export async function deleteRuntimeInvestigationRun(
+  runId: string,
+  capabilityToken: string,
+): Promise<void> {
+  const response = await fetch(`/api/runtime/runs/${encodeURIComponent(runId)}`, {
+    method: "DELETE",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${capabilityToken}`,
+    },
+  });
+  if (!response.ok) {
+    let message = `ResolveAI request failed with status ${response.status}.`;
+    try {
+      const errorBody: unknown = await response.json();
+      if (isRecord(errorBody) && typeof errorBody.detail === "string") {
+        message = errorBody.detail;
+      }
+    } catch {
+      // A proxy or server failure may not have a JSON response body.
+    }
+    throw new ApiRequestError(message, response.status);
+  }
 }
 
 export async function fetchRuntimeReasoner(): Promise<ReasonerMetadata> {

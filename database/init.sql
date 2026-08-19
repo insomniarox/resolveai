@@ -45,6 +45,22 @@ CREATE TABLE IF NOT EXISTS runtime_knowledge_documents (
 CREATE INDEX IF NOT EXISTS runtime_knowledge_documents_expires_at_idx
     ON runtime_knowledge_documents (expires_at);
 
+-- Saved investigations are explicit, short-lived immutable snapshots. The
+-- plaintext capability is returned to the caller once; PostgreSQL keeps only
+-- its SHA-256 digest. There is deliberately no owner, listing, or update path.
+CREATE TABLE IF NOT EXISTS investigation_runs (
+    id uuid PRIMARY KEY,
+    capability_token_hash bytea NOT NULL UNIQUE,
+    created_at timestamptz NOT NULL,
+    expires_at timestamptz NOT NULL,
+    outcome text NOT NULL CHECK (outcome IN ('completed', 'failed')),
+    snapshot jsonb NOT NULL,
+    CHECK (expires_at > created_at)
+);
+
+CREATE INDEX IF NOT EXISTS investigation_runs_expires_at_idx
+    ON investigation_runs (expires_at);
+
 -- The corpus deliberately gives RUN-003 one lexical overlap with the test
 -- query. RUN-001 should rank higher because its weighted title matches both the
 -- "connection pool" phrase and "timeout", while RUN-003 has "timeout" only in
