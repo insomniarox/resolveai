@@ -392,6 +392,8 @@ class RuntimeReasoningResult:
     retrieved_document_ids: list[str]
     outcome: ReasoningOutcome
     retained_scope_rows: int
+    probable_root_cause: str | None = None
+    recommended_remediation: str | None = None
     error: str | None = None
 
     @property
@@ -770,10 +772,28 @@ def evaluate_runtime_reasoning(
     reasoner: ReasonerMetadata,
     repeats: int,
 ) -> list[RuntimeReasoningResult]:
-    """Run repeated provider checks while retaining every failure and cleanup."""
+    """Run the frozen Phase 7.4 cases through the shared live evaluation loop."""
+    return evaluate_runtime_reasoning_cases(
+        database_url=database_url,
+        cases=dataset.valid_cases,
+        hypothesis_generator=hypothesis_generator,
+        reasoner=reasoner,
+        repeats=repeats,
+    )
+
+
+def evaluate_runtime_reasoning_cases(
+    *,
+    database_url: str,
+    cases: list[RuntimeIngestionCase],
+    hypothesis_generator: HypothesisGenerator,
+    reasoner: ReasonerMetadata,
+    repeats: int,
+) -> list[RuntimeReasoningResult]:
+    """Run explicit runtime cases while retaining output, failure, and cleanup."""
     results: list[RuntimeReasoningResult] = []
     for repeat in range(1, repeats + 1):
-        for case in dataset.valid_cases:
+        for case in cases:
             scope_id = uuid4()
             incident, evidence, documents = case.bundle.to_domain()
             generated_hypothesis: Hypothesis | None = None
@@ -877,6 +897,24 @@ def evaluate_runtime_reasoning(
                     retrieved_document_ids=retrieved_document_ids,
                     outcome=outcome,
                     retained_scope_rows=retained_rows,
+                    probable_root_cause=(
+                        diagnosis.probable_root_cause
+                        if diagnosis is not None
+                        else (
+                            generated_hypothesis.probable_root_cause
+                            if generated_hypothesis is not None
+                            else None
+                        )
+                    ),
+                    recommended_remediation=(
+                        diagnosis.recommended_remediation
+                        if diagnosis is not None
+                        else (
+                            generated_hypothesis.recommended_remediation
+                            if generated_hypothesis is not None
+                            else None
+                        )
+                    ),
                     error=error_message,
                 )
             )
@@ -1051,6 +1089,8 @@ def print_reasoning_report(results: list[RuntimeReasoningResult]) -> None:
             f"  documents={documents} attempted_citations={attempted} "
             f"accepted_citations={citations} retained_rows={result.retained_scope_rows}"
         )
+        if result.probable_root_cause:
+            print(f"  probable_root_cause={result.probable_root_cause}")
         if result.error:
             print(f"  error={result.error}")
 
