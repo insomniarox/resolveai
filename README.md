@@ -171,8 +171,9 @@ curl -X POST http://127.0.0.1:8000/incidents/INC-003/investigate
 `INC-001` is diagnosed. `INC-003` is deliberately inconclusive.
 
 To use the runtime path, copy `.env.example` to `.env`, select one provider, and
-add its capped API key. The Runtime JSON tab contains an editable valid bundle,
-so the browser is the shortest way to exercise the complete contract.
+add its capped API key. The Runtime input tab contains a structured form and an
+editable JSON view of the same valid bundle. The form also accepts short `.txt`
+and `.md` files as request-scoped reference documents.
 
 ### Frontend development
 
@@ -188,6 +189,15 @@ pnpm run dev
 
 Open `http://127.0.0.1:3000`. Next.js rewrites same-origin `/api` requests to the
 FastAPI address in `RESOLVEAI_API_URL`.
+
+Frontend checks stay small and local:
+
+```bash
+pnpm run typecheck
+pnpm run lint
+pnpm run test
+pnpm run build
+```
 
 ### Complete Docker topology
 
@@ -220,7 +230,7 @@ web image.
 | Runtime execution and cleanup | `resolve_ai/runtime_investigation.py` |
 | Saved-run snapshots | `resolve_ai/investigation_runs.py` |
 | HTTP translation | `resolve_ai/api.py` |
-| Browser API contract | `web/lib/types.ts`, `web/lib/api.ts` |
+| Browser API contract and runtime bundle helpers | `web/lib/types.ts`, `web/lib/api.ts`, `web/lib/runtime-bundle.ts` |
 | Guided and runtime UI | `web/components/` |
 | Database schema and corpus | `database/init.sql` |
 | Frozen benchmarks | `evals/` |

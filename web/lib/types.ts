@@ -1,17 +1,22 @@
-export type EvidenceSource = "log" | "deployment";
+export const EVIDENCE_SOURCES = ["log", "deployment"] as const;
 
-export type EvidenceKind =
-  | "database_connection_timeout"
-  | "database_lock_wait"
-  | "database_transaction_state"
-  | "authentication_certificate_expired"
-  | "tls_handshake_validation_failed"
-  | "upstream_request_failed"
-  | "upstream_health_check"
-  | "notification_queue_metrics"
-  | "notification_worker_metrics"
-  | "http_request_failed"
-  | "configuration_change";
+export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number];
+
+export const EVIDENCE_KINDS = [
+  "database_connection_timeout",
+  "database_lock_wait",
+  "database_transaction_state",
+  "authentication_certificate_expired",
+  "tls_handshake_validation_failed",
+  "upstream_request_failed",
+  "upstream_health_check",
+  "notification_queue_metrics",
+  "notification_worker_metrics",
+  "http_request_failed",
+  "configuration_change",
+] as const;
+
+export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
 export interface Incident {
   id: string;

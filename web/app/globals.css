@@ -164,7 +164,14 @@ h4 {
 }
 
 .path-tab:focus-visible,
-.runtime-form textarea:focus-visible {
+.runtime-form input:focus-visible,
+.runtime-form textarea:focus-visible,
+.runtime-form select:focus-visible,
+.runtime-editor-tab:focus-visible,
+.runtime-remove-button:focus-visible,
+.runtime-add-link:focus-visible,
+.runtime-detail-remove:focus-visible,
+.runtime-file-button:focus-within {
   outline: 3px solid rgba(36, 87, 214, 0.28);
   outline-offset: 2px;
 }
@@ -177,14 +184,13 @@ h4 {
 
 .runtime-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 0.85fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(560px, 1.15fr) minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
 
 .runtime-input-panel {
-  position: sticky;
-  top: 1rem;
+  min-width: 0;
 }
 
 .runtime-form {
@@ -193,28 +199,283 @@ h4 {
   padding: 1.25rem;
 }
 
-.runtime-form label {
+.runtime-form label,
+.runtime-details-heading > span {
   font-size: 0.82rem;
   font-weight: 750;
 }
 
-.runtime-form textarea {
+.runtime-form input,
+.runtime-form textarea,
+.runtime-form select {
   width: 100%;
-  min-height: 580px;
-  resize: vertical;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  padding: 0.9rem;
+  border-radius: 8px;
+  padding: 0.62rem 0.7rem;
   color: #233247;
   background: #f8fafc;
+  font-size: 0.82rem;
+}
+
+.runtime-form textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.runtime-form input:disabled,
+.runtime-form textarea:disabled,
+.runtime-form select:disabled {
+  opacity: 0.72;
+}
+
+.runtime-bundle-editor {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.runtime-editor-tabs {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  padding: 0.2rem;
+  background: var(--panel-subtle);
+}
+
+.runtime-editor-tab {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.45rem 0.8rem;
+  color: #435268;
+  background: transparent;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.runtime-editor-tab[aria-selected="true"] {
+  color: #ffffff;
+  background: var(--blue);
+}
+
+.runtime-fieldset {
+  min-width: 0;
+  margin: 0 0 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  background: var(--panel-subtle);
+}
+
+.runtime-fieldset:last-child {
+  margin-bottom: 0;
+}
+
+.runtime-fieldset legend {
+  padding: 0 0.35rem;
+  color: #263850;
+  font-size: 0.96rem;
+  font-weight: 800;
+}
+
+.runtime-fieldset-heading,
+.runtime-card-heading,
+.runtime-details-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.runtime-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.runtime-field-grid label {
+  display: grid;
+  align-content: start;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.runtime-field-wide {
+  grid-column: 1 / -1;
+}
+
+.runtime-textarea-short {
+  min-height: 74px;
+}
+
+.runtime-section-help,
+.runtime-empty-note,
+.runtime-character-count,
+.runtime-character-total {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.runtime-fieldset > .runtime-section-help {
+  margin: -0.15rem 0 0.8rem;
+}
+
+.runtime-fieldset-heading .runtime-section-help {
+  margin: 0.2rem 0 0.8rem;
+}
+
+.runtime-card-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.runtime-editor-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem;
+  background: #ffffff;
+}
+
+.runtime-card-heading {
+  margin-bottom: 0.75rem;
+}
+
+.runtime-card-heading h3 {
+  font-size: 0.9rem;
+}
+
+.runtime-remove-button,
+.runtime-add-link,
+.runtime-detail-remove {
+  border: 0;
+  padding: 0.15rem;
+  color: var(--red);
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.runtime-remove-button:disabled,
+.runtime-add-link:disabled,
+.runtime-detail-remove:disabled {
+  opacity: 0.45;
+}
+
+.runtime-details-heading {
+  align-items: center;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+}
+
+.runtime-add-link {
+  color: var(--blue-dark);
+}
+
+.runtime-detail-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.runtime-detail-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) 100px minmax(130px, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.runtime-detail-remove {
+  padding: 0.5rem 0.25rem;
+}
+
+.runtime-add-button {
+  margin-top: 0.75rem;
+}
+
+.runtime-document-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.runtime-file-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  padding: 0.65rem 1rem;
+  color: #314259;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.runtime-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.runtime-character-total {
+  margin-bottom: 0.75rem;
+}
+
+.runtime-character-count {
+  margin-top: 0.45rem;
+  text-align: right;
+}
+
+.runtime-document-content {
+  min-height: 150px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.76rem;
+}
+
+.runtime-json-panel {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.runtime-json-editor {
+  min-height: 580px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.76rem !important;
   line-height: 1.55;
   tab-size: 2;
 }
 
-.runtime-form textarea:disabled {
-  opacity: 0.72;
+.runtime-inline-error,
+.runtime-validation-summary {
+  margin: 0;
+  border: 1px solid #edcaca;
+  border-radius: 8px;
+  padding: 0.75rem;
+  color: var(--red);
+  background: var(--red-soft);
+  font-size: 0.8rem;
+}
+
+.runtime-validation-summary ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .runtime-guidance,
@@ -993,8 +1254,18 @@ dd {
   .context-metadata,
   .diagnosis-facts,
   .item-metadata,
-  .comparison-facts {
+  .comparison-facts,
+  .runtime-field-grid,
+  .runtime-detail-row {
     grid-template-columns: 1fr;
+  }
+
+  .runtime-field-wide {
+    grid-column: auto;
+  }
+
+  .runtime-detail-remove {
+    justify-self: start;
   }
 
   .primary-button {
