@@ -8,6 +8,7 @@ import psycopg
 import pytest
 from pydantic import ValidationError
 
+from resolve_ai import APPLICATION_VERSION
 from resolve_ai.investigation_runs import (
     InvestigationRunSnapshot,
     create_investigation_run,
@@ -93,7 +94,7 @@ def test_snapshot_requires_exactly_one_result_or_stable_failure() -> None:
 def test_current_execution_metadata_records_the_concrete_runtime_settings() -> None:
     metadata = current_runtime_execution_metadata()
 
-    assert metadata.application_version == "0.1.0"
+    assert metadata.application_version == APPLICATION_VERSION
     assert metadata.prompt_version == "runtime-investigation-v1"
     assert metadata.output_schema_version == "runtime-reasoning-decision-v1"
     assert metadata.retrieval_strategy == "semantic"

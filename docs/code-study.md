@@ -321,10 +321,23 @@ pnpm run lint
 
 Read:
 
-1. `web/components/runtime-investigation-workspace.tsx`
-2. `web/components/runtime-run-comparison.tsx`
-3. the saved-run functions in `web/lib/api.ts`
-4. `web/app/globals.css`
+1. `web/lib/runtime-bundle.ts`
+2. `web/components/runtime-bundle-editor.tsx`
+3. the three runtime form components
+4. `web/components/runtime-investigation-workspace.tsx`
+5. `web/components/runtime-run-comparison.tsx`
+6. the saved-run functions in `web/lib/api.ts`
+7. `web/app/globals.css`
+
+The runtime editor owns a typed `RuntimeIncidentBundle`. Form fields update that
+bundle directly. The JSON tab holds a temporary text draft, and Apply JSON
+replaces the typed bundle only after parsing and bounded validation succeed.
+Submitting the form normalizes browser-local timestamps, then sends the same
+version-1 contract used by API callers.
+
+Text and Markdown attachment remains a browser adapter, not a second ingestion
+API. `File.text()` creates ordinary `knowledge_documents`, and the existing
+runtime endpoint handles their embedding, scoped retrieval, and cleanup.
 
 The runtime workspace keeps at most two capabilities in React state. A refresh
 loses them. Saving a third run requires deleting an existing run first. These are
@@ -342,6 +355,8 @@ stylesheet. There is no CSS framework to learn.
 Questions to answer:
 
 - Where are capability tokens stored in the browser?
+- Why does invalid JSON stay separate from the typed form bundle?
+- At what point does an attached file become a knowledge document?
 - What prevents comparing runs for two different incident IDs?
 - Which comparison signals are exact and which field remains for human review?
 - Why must a production API rewrite change trigger a frontend rebuild?
@@ -350,6 +365,7 @@ Run:
 
 ```bash
 cd web
+pnpm run test
 pnpm run build
 ```
 
@@ -454,6 +470,7 @@ Use this map when a behavior is unclear:
 | Runtime ingestion safety | `tests/test_runtime_ingestion_evaluation.py` |
 | Phase 7.6 causal contract | `tests/test_runtime_contract_evaluation.py` |
 | Trace outcome semantics | `tests/test_telemetry.py` |
+| Runtime form conversion and attachment limits | `web/lib/runtime-bundle.test.ts` |
 
 ## Where the code is dense
 

@@ -15,6 +15,7 @@ import type {
   RuntimeExecutionMetadata,
   RuntimeIncidentBundle,
 } from "@/lib/types";
+import { EVIDENCE_KINDS, EVIDENCE_SOURCES } from "@/lib/types";
 
 export const UNEXPECTED_RESPONSE_MESSAGE =
   "ResolveAI returned an unexpected response.";
@@ -36,20 +37,8 @@ export class UnexpectedResponseError extends Error {
   }
 }
 
-const evidenceSources = new Set<EvidenceSource>(["log", "deployment"]);
-const evidenceKinds = new Set<EvidenceKind>([
-  "database_connection_timeout",
-  "database_lock_wait",
-  "database_transaction_state",
-  "authentication_certificate_expired",
-  "tls_handshake_validation_failed",
-  "upstream_request_failed",
-  "upstream_health_check",
-  "notification_queue_metrics",
-  "notification_worker_metrics",
-  "http_request_failed",
-  "configuration_change",
-]);
+const evidenceSources = new Set<EvidenceSource>(EVIDENCE_SOURCES);
+const evidenceKinds = new Set<EvidenceKind>(EVIDENCE_KINDS);
 const runtimeFailureCodes = new Set<RuntimeFailureCode>([
   "runtime_knowledge_unavailable",
   "reasoner_timeout",

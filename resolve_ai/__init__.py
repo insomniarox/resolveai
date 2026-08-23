@@ -1,3 +1,8 @@
 """ResolveAI investigation application."""
 
-APPLICATION_VERSION = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    APPLICATION_VERSION = version("resolveai")
+except PackageNotFoundError:
+    APPLICATION_VERSION = "0.0.0+uninstalled"

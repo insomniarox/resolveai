@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { InvestigationResult } from "@/components/investigation-result";
+import { RuntimeBundleEditor } from "@/components/runtime-bundle-editor";
 import { RuntimeRunComparison } from "@/components/runtime-run-comparison";
 import {
   ApiRequestError,
@@ -20,65 +21,16 @@ import type {
   RuntimeIncidentBundle,
   SavedRuntimeRun,
 } from "@/lib/types";
+import {
+  cloneExampleRuntimeBundle,
+  prepareRuntimeBundle,
+  validateRuntimeBundle,
+} from "@/lib/runtime-bundle";
 
 type RequestState = "idle" | "loading" | "success" | "error";
 type RuntimeAction = "transient" | "saved";
 
-const exampleBundle: RuntimeIncidentBundle = {
-  schema_version: 1,
-  incident: {
-    id: "USER-INC-901",
-    title: "Invoice delivery receipts are stalled",
-    description: "Invoices remain pending after the signing provider accepts them.",
-    service: "invoice-delivery-runtime-service",
-    started_at: "2026-08-17T09:00:00Z",
-  },
-  evidence: [
-    {
-      id: "USER-LOG-901",
-      source: "log",
-      kind: "upstream_request_failed",
-      observed_at: "2026-08-17T09:00:10Z",
-      summary: "Signing receipt callbacks returned HTTP 503.",
-      details: {
-        endpoint: "signing.partner.example/receipt",
-        status_code: 503,
-      },
-    },
-    {
-      id: "USER-LOG-902",
-      source: "log",
-      kind: "notification_queue_metrics",
-      observed_at: "2026-08-17T09:00:15Z",
-      summary: "1,240 invoices remained in SIGNED_PENDING_RECEIPT.",
-      details: { pending_count: 1240 },
-    },
-    {
-      id: "USER-LOG-903",
-      source: "log",
-      kind: "upstream_health_check",
-      observed_at: "2026-08-17T09:00:20Z",
-      summary: "The signing provider upload health check remained healthy.",
-      details: { status_code: 200 },
-    },
-  ],
-  knowledge_documents: [
-    {
-      id: "DOC-901",
-      title: "Invoice signing lifecycle and probe coverage",
-      content_type: "text/markdown",
-      content:
-        "# Signing lifecycle\n\nSIGNED_PENDING_RECEIPT means the provider accepted the invoice, but only a successful receipt callback completes delivery. Delivery workers no longer own invoices in this state. The upload health check does not test the receipt callback endpoint.",
-    },
-  ],
-};
-
-const exampleJson = JSON.stringify(exampleBundle, null, 2);
-
 function describeError(error: unknown): string {
-  if (error instanceof SyntaxError) {
-    return "The bundle is not valid JSON. Check commas, quotes, and brackets.";
-  }
   if (error instanceof ApiRequestError || error instanceof UnexpectedResponseError) {
     return error.message;
   }
@@ -88,20 +40,12 @@ function describeError(error: unknown): string {
   return "The runtime investigation failed. Please retry.";
 }
 
-function incidentIdFromBundle(value: unknown): string | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const incident = (value as Record<string, unknown>).incident;
-  if (typeof incident !== "object" || incident === null || Array.isArray(incident)) {
-    return null;
-  }
-  const id = (incident as Record<string, unknown>).id;
-  return typeof id === "string" ? id : null;
-}
-
 export function RuntimeInvestigationWorkspace() {
-  const [bundleText, setBundleText] = useState(exampleJson);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [bundle, setBundle] = useState<RuntimeIncidentBundle>(
+    cloneExampleRuntimeBundle,
+  );
+  const [inputErrors, setInputErrors] = useState<string[]>([]);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [result, setResult] = useState<InvestigationResultData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +73,37 @@ export function RuntimeInvestigationWorkspace() {
 
   async function runInvestigation(action: RuntimeAction) {
     if (requestState === "loading") return;
+    if (!formRef.current?.reportValidity()) return;
 
+    const preparedBundle = prepareRuntimeBundle(bundle);
+    const validationErrors = validateRuntimeBundle(preparedBundle);
+    if (validationErrors.length > 0) {
+      setInputErrors(validationErrors);
+      setError("Fix the runtime input before starting the investigation.");
+      setRequestState("error");
+      return;
+    }
+
+    if (action === "saved" && savedRuns.length >= 2) {
+      setError("Delete one saved run before saving another comparison run.");
+      setRequestState("error");
+      return;
+    }
+    const comparedIncidentId = savedRuns[0]?.run.snapshot.bundle.incident.id ?? null;
+    if (
+      action === "saved" &&
+      comparedIncidentId &&
+      preparedBundle.incident.id !== comparedIncidentId
+    ) {
+      setError(
+        `Saved comparisons must use the same incident ID (${comparedIncidentId}).`,
+      );
+      setRequestState("error");
+      return;
+    }
+
+    setBundle(preparedBundle);
+    setInputErrors([]);
     setRequestState("loading");
     setActiveAction(action);
     setResult(null);
@@ -138,26 +112,8 @@ export function RuntimeInvestigationWorkspace() {
     setComparisonError(null);
 
     try {
-      const bundle: unknown = JSON.parse(bundleText);
-
       if (action === "saved") {
-        if (savedRuns.length >= 2) {
-          setError("Delete one saved run before saving another comparison run.");
-          setRequestState("error");
-          return;
-        }
-        const incidentId = incidentIdFromBundle(bundle);
-        const comparedIncidentId =
-          savedRuns[0]?.run.snapshot.bundle.incident.id ?? null;
-        if (comparedIncidentId && incidentId !== comparedIncidentId) {
-          setError(
-            `Saved comparisons must use the same incident ID (${comparedIncidentId}).`,
-          );
-          setRequestState("error");
-          return;
-        }
-
-        const created = await createRuntimeInvestigationRun(bundle);
+        const created = await createRuntimeInvestigationRun(preparedBundle);
         const fetched = await fetchRuntimeInvestigationRun(
           created.run.id,
           created.capability_token,
@@ -169,7 +125,7 @@ export function RuntimeInvestigationWorkspace() {
         setLastSavedRun(fetched);
         setResult(fetched.snapshot.investigation_result);
       } else {
-        setResult(await investigateRuntimeBundle(bundle));
+        setResult(await investigateRuntimeBundle(preparedBundle));
       }
       setRequestState("success");
     } catch (caught) {
@@ -201,7 +157,8 @@ export function RuntimeInvestigationWorkspace() {
   }
 
   function resetExample() {
-    setBundleText(exampleJson);
+    setBundle(cloneExampleRuntimeBundle());
+    setInputErrors([]);
     setRequestState("idle");
     setResult(null);
     setLastSavedRun(null);
@@ -226,25 +183,25 @@ export function RuntimeInvestigationWorkspace() {
 
           <form
             className="runtime-form"
+            ref={formRef}
             onSubmit={(event) => {
               event.preventDefault();
               void runInvestigation("transient");
             }}
           >
             <p className="runtime-guidance">
-              Supply schema version 1, one incident, 1–50 normalized Evidence
-              items, and optionally up to five bounded text or Markdown knowledge
-              documents. IDs must be unique and timestamps must include a UTC
-              offset.
+              Enter one incident and 1–50 normalized Evidence items. You can also
+              attach up to five short text or Markdown documents for this
+              investigation.
             </p>
-            <label htmlFor="runtime-bundle">Incident bundle JSON</label>
-            <textarea
-              aria-describedby="runtime-limit-note"
+            <RuntimeBundleEditor
+              bundle={bundle}
               disabled={requestState === "loading"}
-              id="runtime-bundle"
-              onChange={(event) => setBundleText(event.target.value)}
-              spellCheck={false}
-              value={bundleText}
+              errors={inputErrors}
+              onChange={(nextBundle) => {
+                setBundle(nextBundle);
+                setInputErrors([]);
+              }}
             />
             <p className="runtime-limit-note" id="runtime-limit-note">
               Supplied knowledge uses a request-only retrieval scope removed when
@@ -297,7 +254,7 @@ export function RuntimeInvestigationWorkspace() {
             <div className="empty-workspace">
               <p className="section-kicker">Ready</p>
               <h2>Investigate previously unseen input</h2>
-              <p>Edit the example or paste another valid version-1 bundle.</p>
+              <p>Edit the example through the form or apply another valid version-1 JSON bundle.</p>
             </div>
           )}
 

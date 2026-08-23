@@ -38,13 +38,13 @@ export function InvestigationModeWorkspace() {
             role="tab"
             type="button"
           >
-            Runtime JSON
+            Runtime input
           </button>
         </div>
         <p className="path-description">
           {mode === "guided"
             ? "Prepared synthetic fixtures provide a fast, deterministic architecture tour."
-            : "Paste one bounded version-1 incident bundle. Process it transiently, or explicitly save up to two one-hour provenance snapshots for comparison."}
+            : "Enter one bounded version-1 incident bundle through a form or JSON. Process it transiently, or save up to two one-hour provenance snapshots for comparison."}
         </p>
       </section>
 

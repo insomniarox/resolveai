@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from httpx import Request
 from openai import APITimeoutError
 
-from resolve_ai import api, runtime_investigation
+from resolve_ai import APPLICATION_VERSION, api, runtime_investigation
 from resolve_ai.api import app
 from resolve_ai.fake_model import generate_fake_hypothesis
 from resolve_ai.investigation_runs import (
@@ -494,7 +494,7 @@ def test_runtime_run_explicitly_saves_a_complete_provenance_snapshot(
         "model": "openai/gpt-5.6-luna",
     }
     assert snapshot["execution"] == {
-        "application_version": "0.1.0",
+        "application_version": APPLICATION_VERSION,
         "prompt_version": "runtime-investigation-v1",
         "output_schema_version": "runtime-reasoning-decision-v1",
         "retrieval_strategy": "semantic",
