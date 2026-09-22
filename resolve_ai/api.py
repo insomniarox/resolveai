@@ -5,8 +5,10 @@ it translates an HTTP request into a call to our Python workflow, then translate
 the returned Pydantic model into JSON. The investigation itself remains in
 ``investigation.py`` so it can be understood and tested without running a server.
 
-The API has nine operations:
+The API has eleven operations:
 
+* ``GET /runbooks`` lists the persistent official library.
+* ``POST /runbooks`` embeds and adds an official runbook.
 * ``GET /incidents`` lets callers discover the available synthetic incidents.
 * ``POST /incidents/{incident_id}/investigate`` runs the investigation workflow.
 * ``GET /runtime/reasoner`` discloses safe server-side model metadata.
@@ -32,6 +34,7 @@ from threading import BoundedSemaphore, Thread
 from typing import Annotated
 from uuid import UUID
 
+import psycopg
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
@@ -53,6 +56,12 @@ from resolve_ai.investigation_runs import (
     snapshot_from_failure,
 )
 from resolve_ai.models import Incident, InvestigationResult, ReasonerMetadata
+from resolve_ai.runbooks import (
+    LibraryRunbook,
+    RunbookUpload,
+    list_runbooks,
+    upload_runbook,
+)
 from resolve_ai.runtime_input import RuntimeIncidentBundle
 from resolve_ai.runtime_investigation import (
     RuntimeFailureCode,
@@ -356,3 +365,21 @@ def compare_runtime_endpoint(request: ComparisonInput) -> StreamingResponse:
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/runbooks", response_model=list[LibraryRunbook])
+def get_runbooks() -> list[LibraryRunbook]:
+    """List the complete library, including embedding readiness."""
+    try:
+        return list_runbooks(_get_database_url())
+    except (psycopg.Error, RuntimeError, ValueError) as error:
+        raise HTTPException(503, "Runbook library is unavailable.") from error
+
+
+@app.post("/runbooks", response_model=LibraryRunbook, status_code=201)
+def create_runbook(document: RunbookUpload) -> LibraryRunbook:
+    """Store an operator-designated official runbook with its embedding."""
+    try:
+        return upload_runbook(_get_database_url(), document)
+    except (psycopg.Error, RuntimeError, ValueError) as error:
+        raise HTTPException(503, "Runbook could not be stored. Retry later.") from error

@@ -130,11 +130,11 @@ def test_new_observations_do_not_encode_the_expected_interpretation() -> None:
     }
 
 
-def test_runbook_seed_contains_exactly_nine_unique_documents() -> None:
+def test_runbook_seed_contains_fifteen_unique_documents() -> None:
     initialization_sql = DATABASE_INIT_PATH.read_text(encoding="utf-8")
     runbook_ids = re.findall(r"\(\s*'(RUN-\d{3})',", initialization_sql)
 
-    assert runbook_ids == [f"RUN-{number:03}" for number in range(1, 10)]
+    assert runbook_ids == [f"RUN-{number:03}" for number in range(1, 16)]
     assert len(runbook_ids) == len(set(runbook_ids))
     assert (
         "Payment database client profiles and admission telemetry" in initialization_sql

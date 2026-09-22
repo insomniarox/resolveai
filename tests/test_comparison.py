@@ -312,3 +312,90 @@ def test_request_worker_finishes_without_stream_consumer(monkeypatch):
     assert released.wait(2)
     assert semaphore.acquire(blocking=False)
     semaphore.release()
+
+
+@pytest.mark.parametrize(
+    "model, tokens, estimate",
+    [
+        ("jev-1.13.0", 1000, 0.000042),
+        ("jev-future", 1000, None),
+        ("jev-1.13.0", None, None),
+        ("jev-1.13.0", 0, 0),
+    ],
+)
+def test_jev_estimate_is_separate_from_reported_cost(
+    monkeypatch, model, tokens, estimate
+):
+    from types import SimpleNamespace
+
+    from resolve_ai import comparison_reasoner
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def system_one(self, **kwargs):
+            return SimpleNamespace(
+                model=model,
+                choices={"cause": SimpleNamespace(choice="c0", confidence=0.9)},
+                usage=SimpleNamespace(
+                    model_dump=lambda: {"input_tokens": tokens, "output_tokens": 10}
+                ),
+            )
+
+    monkeypatch.setattr(comparison_reasoner, "TypeSafeClient", Client)
+    result = comparison_reasoner.ask(
+        "jev", {}, comparison_reasoner.cause_questions(["Provider failure"]), "cause"
+    )
+    assert result.usage.reported_cost_usd is None
+    if estimate is None:
+        assert result.usage.estimated_cost_usd is None
+    else:
+        assert result.usage.estimated_cost_usd == pytest.approx(estimate)
+
+
+def test_reference_roles_reach_both_models_without_becoming_evidence(monkeypatch):
+    from resolve_ai.models import RetrievedKnowledgeDocument, RetrievedRunbook
+
+    runbook = RetrievedRunbook(
+        id="R1",
+        title="Official guide",
+        service="svc",
+        content="Expected behavior",
+        similarity_score=0.8,
+    )
+    document = RetrievedKnowledgeDocument(
+        id="D1",
+        title="Incident notes",
+        content_type="text/plain",
+        content="Supplemental context",
+        similarity_score=0.9,
+    )
+    monkeypatch.setattr(
+        comparison,
+        "retrieve_investigation_references",
+        lambda *args: ([runbook], [document]),
+    )
+    states = []
+
+    def caller(provider, state, questions, stage):
+        states.append((provider, deepcopy(state)))
+        return answer(provider, state, questions, stage)
+
+    events = []
+    comparison.run_comparison(request(), "unused", events.append, caller)
+    assert {provider for provider, _ in states} == {"jev", "openrouter"}
+    for _, state in states:
+        assert [r["reference_type"] for r in state["references"]] == [
+            "official_runbook",
+            "attached_document",
+        ]
+        assert [e["id"] for e in state["evidence"]] == ["E1"]
+    assert events[0].prepared.runbooks == [runbook]
+    assert events[0].prepared.documents == [document]

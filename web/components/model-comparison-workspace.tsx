@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RunbookLibrary } from "./runbook-library";
 import { ComparisonPackageLibrary } from "./comparison-package-library";
 import {
   cloneComparisonPackage,
@@ -46,12 +47,14 @@ function ResultColumn({
   prepared,
   running,
   model,
+  expected,
 }: {
   provider: Provider;
   branch?: Branch;
   prepared: Prepared | null;
   running: boolean;
   model?: string;
+  expected?: string;
 }) {
   const tokens =
     branch?.calls.length &&
@@ -70,6 +73,25 @@ function ResultColumn({
     costs?.length &&
     costs.every((c) => c != null)
       ? costs.reduce<number>((sum, c) => sum + (c ?? 0), 0)
+      : null;
+  const estimate =
+    branch?.outcome !== "failed" &&
+    branch?.calls.length &&
+    branch.calls.every((c) => c.usage.estimated_cost_usd != null)
+      ? branch.calls.reduce(
+          (sum, c) => sum + (c.usage.estimated_cost_usd ?? 0),
+          0,
+        )
+      : null;
+  const inputTokens =
+    branch?.calls.length &&
+    branch.calls.every((c) => c.usage.input_tokens != null)
+      ? branch.calls.reduce((sum, c) => sum + (c.usage.input_tokens ?? 0), 0)
+      : null;
+  const outputTokens =
+    branch?.calls.length &&
+    branch.calls.every((c) => c.usage.output_tokens != null)
+      ? branch.calls.reduce((sum, c) => sum + (c.usage.output_tokens ?? 0), 0)
       : null;
   return (
     <article className={`panel comparison-result ${provider}`}>
@@ -99,18 +121,56 @@ function ResultColumn({
               <dd>{ms(branch.duration_ms)}</dd>
             </div>
             <div>
-              <dt>Reported tokens</dt>
+              <dt>
+                Reported tokens{branch.outcome === "failed" ? " (partial)" : ""}
+              </dt>
               <dd>{tokens?.toLocaleString() ?? "Unavailable"}</dd>
             </div>
             <div>
-              <dt>Reported cost</dt>
-              <dd>{cost != null ? `$${cost.toFixed(6)}` : "Unavailable"}</dd>
+              <dt>
+                {cost == null && estimate != null
+                  ? "Estimated cost"
+                  : "Reported cost"}
+              </dt>
+              <dd>
+                {cost != null
+                  ? `$${cost.toFixed(6)}`
+                  : estimate != null
+                    ? `$${estimate.toFixed(6)}`
+                    : "Not returned by provider"}
+              </dd>
             </div>
             <div>
-              <dt>Accuracy</dt>
-              <dd>Not assessed</dd>
+              <dt>Reference answer match</dt>
+              <dd>
+                {!expected
+                  ? "No reference answer"
+                  : branch.outcome === "failed"
+                    ? "Not assessed"
+                    : (branch.outcome === "supported"
+                          ? String(branch.candidate_index)
+                          : "none") === expected
+                      ? "Match"
+                      : "Mismatch"}
+              </dd>
             </div>
           </dl>
+          <p className="comparison-note">
+            Input: {inputTokens?.toLocaleString() ?? "Not reported"} · Output:{" "}
+            {outputTokens?.toLocaleString() ?? "Not reported"}. Counts sum
+            returned calls. Provider tokenization and accounting differ; token
+            totals alone do not compare cost or quality.
+          </p>
+          {cost == null && estimate != null && (
+            <p className="comparison-note">
+              {branch.calls[0]?.usage.cost_basis} Estimate excludes shared
+              retrieval and embedding work.
+            </p>
+          )}
+          <p className="comparison-note">
+            Reference matching checks one operator-supplied answer, not overall
+            accuracy. The reference answer is never sent to either model.
+          </p>
           {branch.outcome === "failed" ? (
             <p role="alert">
               {failureText[branch.error_code ?? "internal_error"]}
@@ -158,6 +218,7 @@ export function ModelComparisonWorkspace() {
   const [loadedPackage, setLoadedPackage] = useState(
     "Checkout locks package loaded",
   );
+  const [expected, setExpected] = useState("");
   const [editorVersion, setEditorVersion] = useState(0);
   const [metadata, setMetadata] = useState<ComparisonMetadata | null>(null);
   const [running, setRunning] = useState(false);
@@ -165,6 +226,7 @@ export function ModelComparisonWorkspace() {
   const [submitted, setSubmitted] = useState<{
     bundle: RuntimeIncidentBundle;
     candidates: string[];
+    expected: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -217,7 +279,7 @@ export function ModelComparisonWorkspace() {
     controller.current = abort;
     setRunning(true);
     setEvents([]);
-    setSubmitted(input);
+    setSubmitted({ ...input, expected });
     setStale(false);
     setError(null);
     const timeout = setTimeout(() => abort.abort(), 120_000);
@@ -258,6 +320,7 @@ export function ModelComparisonWorkspace() {
     input: { bundle: RuntimeIncidentBundle; candidates: string[] },
     label: string,
   ) {
+    setExpected("");
     setBundle(input.bundle);
     setCandidates(input.candidates);
     setErrors([]);
@@ -284,6 +347,10 @@ export function ModelComparisonWorkspace() {
         }
       />
       <div className="comparison-main">
+        <RunbookLibrary
+          disabled={running}
+          onChange={() => setStale(events.length > 0)}
+        />
         <form
           ref={form}
           onSubmit={(e) => {
@@ -352,6 +419,7 @@ export function ModelComparisonWorkspace() {
                     maxLength={500}
                     required
                     onChange={(e) => {
+                      setExpected("");
                       setCandidates(
                         candidates.map((c, j) =>
                           i === j ? e.target.value : c,
@@ -366,6 +434,7 @@ export function ModelComparisonWorkspace() {
                     aria-label={`Remove hypothesis ${String.fromCharCode(65 + i)}`}
                     disabled={candidates.length === 1}
                     onClick={() => {
+                      setExpected("");
                       setCandidates(candidates.filter((_, j) => i !== j));
                       setStale(events.length > 0);
                     }}
@@ -379,6 +448,7 @@ export function ModelComparisonWorkspace() {
                   type="button"
                   className="secondary-button"
                   onClick={() => {
+                    setExpected("");
                     setCandidates([...candidates, ""]);
                     setLoadedPackage("Custom input");
                     setStale(events.length > 0);
@@ -388,6 +458,30 @@ export function ModelComparisonWorkspace() {
                 </button>
               )}
             </fieldset>
+            <label>
+              Reference answer, optional
+              <select
+                disabled={running}
+                value={expected}
+                onChange={(e) => {
+                  setExpected(e.target.value);
+                  setStale(events.length > 0);
+                }}
+              >
+                <option value="">No reference answer</option>
+                <option value="none">No hypothesis established</option>
+                {candidates.map((c, i) => (
+                  <option key={i} value={String(i)}>
+                    {String.fromCharCode(65 + i)}: {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="comparison-note">
+              Use an independently reviewed answer to check each result. This
+              answer stays out of model inputs. A match on one incident is not
+              an accuracy benchmark.
+            </p>
             <p className="comparison-note">
               Runbook similarity ranks reference material, not observations.
               Both models read every observation and judge its role using the
@@ -543,6 +637,7 @@ export function ModelComparisonWorkspace() {
               prepared={prepared}
               running={running}
               model={metadata?.models[p]}
+              expected={submitted?.expected}
             />
           ))}
         </div>
@@ -651,7 +746,10 @@ export function ModelComparisonWorkspace() {
                 changed a decision.
               </p>
               {[
-                { title: "Stored runbooks", items: prepared.runbooks },
+                {
+                  title: "Retrieved official runbooks",
+                  items: prepared.runbooks,
+                },
                 { title: "Attached documents", items: prepared.documents },
               ].map((group) => (
                 <div className="reference-group" key={group.title}>

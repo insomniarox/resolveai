@@ -95,7 +95,7 @@ def test_current_execution_metadata_records_the_concrete_runtime_settings() -> N
     metadata = current_runtime_execution_metadata()
 
     assert metadata.application_version == APPLICATION_VERSION
-    assert metadata.prompt_version == "runtime-investigation-v1"
+    assert metadata.prompt_version == "runtime-investigation-v2"
     assert metadata.output_schema_version == "runtime-reasoning-decision-v1"
     assert metadata.retrieval_strategy == "semantic"
     assert metadata.retrieval_limit == 3

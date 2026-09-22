@@ -156,7 +156,7 @@ def test_semantic_query_respects_limit_and_similarity_order() -> None:
         # when the developer database was populated by an earlier command.
         connection.execute("UPDATE runbooks SET embedding = NULL")
 
-    assert populate_runbook_embeddings(database_url) == 9
+    assert populate_runbook_embeddings(database_url) == 15
 
     results = semantic_search_runbooks(
         database_url=database_url,
@@ -165,7 +165,7 @@ def test_semantic_query_respects_limit_and_similarity_order() -> None:
     )
 
     assert len(results) == 3
-    corpus_ids = {f"RUN-{number:03}" for number in range(1, 10)}
+    corpus_ids = {f"RUN-{number:03}" for number in range(1, 16)}
     assert all(result.id in corpus_ids for result in results)
     assert [result.similarity_score for result in results] == sorted(
         (result.similarity_score for result in results),

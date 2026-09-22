@@ -75,7 +75,7 @@ Read:
 Learn these facts:
 
 - Python 3.13 and uv own the backend dependency graph.
-- PostgreSQL holds nine frozen runbooks, scoped runtime documents, and one-hour
+- PostgreSQL holds 15 seed runbooks plus explicit uploads, scoped runtime documents, and one-hour
   saved-run snapshots.
 - pgvector performs cosine-distance ordering inside PostgreSQL.
 - FastAPI, Next.js, and PostgreSQL are separate containers.
@@ -160,7 +160,7 @@ The workflow does five things:
 
 1. Copy caller-owned input.
 2. Build one deterministic query.
-3. Retrieve frozen runbooks and optional runtime documents.
+3. Retrieve stored runbooks and optional runtime documents.
 4. Ask the selected reasoner for a hypothesis or abstention.
 5. Verify cited Evidence IDs before constructing the result.
 
@@ -401,7 +401,7 @@ Questions to answer:
 - Why does exact-label accuracy remain visible when it is known to be brittle?
 - Why can citation precision be unavailable for a wrong exact label?
 - Which metrics are quality measurements and which are safety gates?
-- Why must runtime data never enter the frozen runbook table?
+- Why must incident attachments remain separate from explicit official runbook uploads?
 
 Run deterministic evaluator tests:
 
@@ -576,3 +576,67 @@ real PostgreSQL context, scoped deletion, and unchanged frozen runbooks. Browser
 stream tests are in `web/lib/comparison-api.test.ts`. The harder atomic evaluator
 and production-protocol regression measure different questions; read the report
 before comparing their scores.
+
+## Study block: official runbooks and comparison measurements
+
+The comparison page lists the complete official runbook library, including names,
+services, total count and embedding readiness. Expand an entry to read its content.
+The seed library now contains 15 synthetic examples. RUN-010 through RUN-015 cover
+invoice receipt callbacks, checkout migration locks, DNS failures, API throttling,
+disk exhaustion and container memory limits. These examples are not actual company policy.
+
+Use **Add an official runbook** to upload UTF-8 `.md`, `.markdown` or `.txt`, or
+paste a procedure. Supply its title and service. The limit is 6,000 characters;
+the browser also limits files to 24 KB. Submitting designates the document as
+official guidance for this workspace. `POST /runbooks` accepts JSON with `title`,
+`service` and `content`, embeds it before insertion and returns the new record
+with status 201. It assigns an `UPLOAD-` UUID so an upload cannot overwrite a
+seed entry. `GET /runbooks` returns the full library. Validation failures return
+422 and storage failures return 503. Uploads persist across incidents and become
+searchable immediately. The app has no approval workflow or document versioning;
+its existing local-workspace access boundary also governs library writes.
+
+Runbooks describe official procedures and expected behavior. Attached documents
+are supplemental incident context, stored in a request scope and removed after
+execution, with expiry as a fallback. They never become official runbooks merely
+by being attached. Both comparison providers receive the same reference-type tags.
+Comparison protocol v2 and runtime prompt v2 prefer applicable runbooks for
+procedure guidance, but neither reference type overrides observations. Unresolved
+conflicts must not be treated as proof of a cause. No numeric importance weight is
+assigned to either group. Similarity selects up to three runbooks and three
+attachments independently, without a service filter or minimum similarity cutoff.
+Only observation IDs can support a diagnosis. The UI shows the retrieved subset
+separately from the full library; it does not measure each reference's causal
+influence on a decision.
+
+Model cards separate input and output tokens and sum usage across returned calls.
+Failed branches label token totals as partial. Tokenization and provider accounting
+differ, so a larger Jev count does not by itself mean greater cost or worse quality.
+The application does not establish why one provider reports more tokens on a
+particular incident. Both branches use the same context, though native request
+formats and the number of completed stages can differ.
+
+Jev's API returns token usage without a billed cost. For `jev-1.13.0`, the app
+shows **Estimated cost**, calculated as input tokens × $0.042 / 1,000,000; output
+tokens are free. This rate was checked on 2026-09-22 against the
+[TypeSafe model documentation](https://docs.typesafe.ai/models).
+`estimated_cost_usd` and `cost_basis` remain separate from `reported_cost_usd`
+in the exported events. The estimate excludes shared retrieval and embedding
+work, is not an invoice, and needs updating when pricing changes. Unknown Jev
+versions do not inherit this estimate. Provider-reported cost takes precedence.
+
+The optional **Reference answer** selects a candidate or "No hypothesis
+established." Each card reports match or mismatch against that answer. Failed
+branches remain unassessed. The browser captures the reference answer at submission
+and includes it in the result export, but never sends it to either model. Editing
+candidate text clears the selection. Without a reference answer there is no
+correctness score. One match is not an accuracy benchmark, and Choice confidence
+is not accuracy.
+
+For an existing database, reapply `database/init.sql` and run
+`python -m resolve_ai.populate_runbook_embeddings --database-url <database-url>`
+with the project's Python environment, as in the setup instructions. The seed
+update preserves uploaded entries and existing unchanged embeddings. Historical
+nine-runbook evaluation results describe the earlier corpus; adding seeds or
+uploads can change retrieval and requires fresh evaluation before comparing scores.
+No live provider evaluation or browser smoke test was run for this change.
