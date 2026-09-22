@@ -5,11 +5,13 @@ it translates an HTTP request into a call to our Python workflow, then translate
 the returned Pydantic model into JSON. The investigation itself remains in
 ``investigation.py`` so it can be understood and tested without running a server.
 
-The API has seven operations:
+The API has nine operations:
 
 * ``GET /incidents`` lets callers discover the available synthetic incidents.
 * ``POST /incidents/{incident_id}/investigate`` runs the investigation workflow.
 * ``GET /runtime/reasoner`` discloses safe server-side model metadata.
+* ``GET /runtime/comparison`` reports fixed comparison models and availability.
+* ``POST /runtime/compare`` streams a transient paired hypothesis assessment.
 * ``POST /runtime/investigate`` accepts one transient versioned runtime bundle.
 * ``POST /runtime/runs`` explicitly saves one short-lived investigation.
 * ``GET /runtime/runs/{run_id}`` reads a run with its bearer capability.
@@ -25,13 +27,19 @@ Prepared-incident request flow:
 
 import os
 from datetime import timedelta
-from threading import BoundedSemaphore
+from queue import SimpleQueue
+from threading import BoundedSemaphore, Thread
 from typing import Annotated
 from uuid import UUID
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Response, status
+from fastapi.responses import StreamingResponse
 
 from resolve_ai import APPLICATION_VERSION
+from resolve_ai.comparison import run_comparison
+from resolve_ai.comparison_models import ComparisonEvent, ComparisonInput
+from resolve_ai.comparison_reasoner import COMPARISON_PROTOCOL, MODELS
 from resolve_ai.fixtures import get_incident_context, list_incidents
 from resolve_ai.investigation import investigate_incident
 from resolve_ai.investigation_runs import (
@@ -298,3 +306,53 @@ def delete_runtime_run_endpoint(
     if not deleted:
         raise _run_not_found()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/runtime/comparison")
+def comparison_metadata() -> dict:
+    """Expose capabilities, not secrets or a browser-controlled provider picker."""
+    load_dotenv()
+    return {
+        "protocol": COMPARISON_PROTOCOL,
+        "models": MODELS,
+        "available": {
+            "jev": bool(os.environ.get("TYPESAFE_API_KEY", "").strip()),
+            "openrouter": bool(os.environ.get("OPENROUTER_API_KEY", "").strip()),
+        },
+        "max_candidates": 5,
+    }
+
+
+@app.post("/runtime/compare")
+def compare_runtime_endpoint(request: ComparisonInput) -> StreamingResponse:
+    """Stream two independent outcomes from a bounded request-owned worker.
+
+    The worker owns admission and cleanup even if the browser disconnects. It
+    finishes at most two no-retry provider calls per route; it is not a job queue.
+    """
+    if not all(comparison_metadata()["available"].values()):
+        raise HTTPException(503, "Configure both comparison providers on the server.")
+    database_url = _get_database_url()
+    queue: SimpleQueue[str | None] = SimpleQueue()
+
+    def emit(event: ComparisonEvent):
+        queue.put(event.model_dump_json(exclude_none=True) + "\n")
+
+    def work():
+        try:
+            run_comparison(request, database_url, emit)
+        finally:
+            _runtime_reasoner_gate.release()
+            queue.put(None)
+
+    _acquire_runtime_reasoner()
+    try:
+        Thread(target=work, daemon=True, name="runtime-comparison").start()
+    except RuntimeError:
+        _runtime_reasoner_gate.release()
+        raise
+    return StreamingResponse(
+        iter(queue.get, None),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

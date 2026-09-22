@@ -1,21 +1,26 @@
 # ResolveAI
 
 ResolveAI is a portfolio-scale incident investigation copilot built with
-synthetic data. It has two reviewer paths:
+synthetic data. It has three reviewer paths:
 
 - a guided path with three prepared incidents and a deterministic reasoner;
 - a runtime path that accepts a bounded JSON bundle and uses one server-selected
-  GPT-5.6 Luna provider.
+  GPT-5.6 Luna provider;
+- an experimental comparison path that assesses user-supplied hypotheses with
+  OpenRouter and Jev concurrently against shared evidence and references.
 
-Both paths collect or accept observed Evidence, retrieve related runbooks from
+The guided and ordinary runtime paths collect or accept observed Evidence,
+retrieve related runbooks from
 PostgreSQL with pgvector, ask a reasoner for a structured hypothesis, verify its
 Evidence citations, and return a diagnosed or inconclusive result.
 
 The project is a showcase exercise, not a hosted platform. It has no accounts,
-workspaces, autonomous remediation, background workers, or general-purpose tool
+workspaces, autonomous remediation, durable background jobs, or general-purpose tool
 execution.
 
-For a file-by-file reading order, use [docs/code-study.md](docs/code-study.md).
+For a visual architecture walkthrough, open
+[docs/case-study.html](docs/case-study.html). For a file-by-file reading order,
+use [docs/code-study.md](docs/code-study.md).
 
 ## What the application proves
 
@@ -122,6 +127,8 @@ unauthorized saved runs all return the same 404 response.
 | `GET /incidents` | List the three prepared synthetic incidents. |
 | `POST /incidents/{incident_id}/investigate` | Run the guided deterministic investigation. |
 | `GET /runtime/reasoner` | Return safe provider and model metadata. |
+| `GET /runtime/comparison` | Return comparison models, protocol, and configuration availability. |
+| `POST /runtime/compare` | Stream a transient paired hypothesis comparison as NDJSON. |
 | `POST /runtime/investigate` | Investigate one validated runtime bundle without saving it. |
 | `POST /runtime/runs` | Investigate and save one one-hour immutable snapshot. |
 | `GET /runtime/runs/{run_id}` | Read a saved run with its bearer capability. |
@@ -133,7 +140,7 @@ document is limited to 8,000 characters and the combined document text is
 limited to 20,000 characters. IDs must be unique, timestamps need a UTC offset,
 and unknown fields are rejected.
 
-Runtime inference uses exactly one server-selected provider:
+Ordinary runtime inference uses exactly one server-selected provider:
 
 | Configuration | Model | Secret |
 |---|---|---|
@@ -362,3 +369,91 @@ Container configuration check:
 ```bash
 docker compose config --quiet
 ```
+
+## Jev decision experiment
+
+A separate, opt-in evaluator compares Jev and OpenRouter on the same bounded
+cause-selection and evidence-support questions. It uses six synthetic incident
+families with structured, prose, paraphrased, and missing-evidence variants.
+It does not change the app runtime, retrieval, or saved runs.
+
+The existing TypeSafe SDK dependency uses `TYPESAFE_API_KEY`. Live evaluation
+also requires `OPENROUTER_API_KEY`. Keys stay in `.env` or the process environment.
+
+```bash
+# Prepare and validate all requests without provider calls.
+uv run python -m evals.evaluate_jev_decisions --output /tmp/jev-dry-run.jsonl
+# Exactly 48 calls, two providers per input, no retries.
+uv run python -m evals.evaluate_jev_decisions --live --max-calls 48 \
+  --output /tmp/jev-results.jsonl
+```
+
+Output paths must be new. The JSONL artifact retains shared inputs, expected
+answers separately from requests, model outputs, usage, timings, and failures.
+See [the decision report](evals/jev_decision_report.md) for results and limits.
+
+## Compare models
+
+The Compare models tab accepts the existing runtime incident bundle plus one to
+five distinct candidate hypotheses, each 3–500 characters. It requires both
+`OPENROUTER_API_KEY` and `TYPESAFE_API_KEY` on the server. The current models are
+`openai/gpt-5.6-luna` and `jev-1.13.0`. Compose forwards both keys to FastAPI.
+
+The scenario picker includes ten detailed synthetic packages covering database
+locks, certificate trust, message redelivery, search aliases, partner quotas, DNS
+egress, database connection budgets, clock skew, request deadlines, and incomplete
+telemetry. Each includes seven observations, two reference documents, and four
+candidate hypotheses. Loading replaces the complete editor input without making
+model calls; the original invoice example is also available. These are interactive
+examples, not additional model benchmarks. The complete current request can be
+inspected and downloaded as JSON, with a separate downloadable JSON Schema at
+`/comparison-input.schema.json`. Server validation also enforces cross-field rules
+described in that schema. Source packages live in
+`web/lib/data/comparison-packages.json`.
+
+```text
+validate bundle and hypotheses
+  -> ingest scoped documents and retrieve once
+  -> copy identical context into OpenRouter and Jev branches
+       -> select a hypothesis or abstain
+       -> assess Evidence for the selected hypothesis
+  -> stream each result independently
+  -> clean up the shared document scope
+```
+
+Each route makes at most two calls, with 30-second SDK timeouts and no retries.
+A provider failure preserves the other result. A process-local admission gate
+allows one ordinary runtime investigation or one paired comparison at a time.
+The request-owned worker finishes its bounded calls and cleanup if the browser
+disconnects; disconnect does not cancel an in-flight SDK request.
+
+Comparison requests use `{"bundle": <runtime bundle>, "candidates": ["..."]}`.
+Events have `type` prepared, branch, error, or finished and their corresponding
+payload. The browser validates event shapes, order, candidate bounds, and Evidence
+IDs. A conservative 30,000-byte budget on serialized state plus questions rejects
+large comparisons before provider calls; shorten evidence or documents if needed.
+This extra limit does not change the ordinary runtime bundle limits.
+
+Results show independent outcomes, a shared timing chart, reported tokens and
+cost where available, evidence alignment, and a downloadable JSON report. Runtime
+accuracy is explicitly not assessed. Jev Choice confidence describes concentration
+among choices, not diagnosis accuracy. Reference material never becomes an
+Evidence citation. Any contradictory observation or absence of supporting
+observations leaves the assessment inconclusive.
+
+Reference details show retrieval rank and cosine similarity separately for stored
+runbooks and attached documents. The incident and observation summaries form the
+search query; retrieval selects up to three references from each group. Both
+models receive all observations and the same retrieved references with their
+scores. Similarity does not filter observations or assign their evidence labels.
+The reference content can inform interpretation, but the application has no fixed
+score-to-observation weighting and does not measure individual reference influence.
+
+The app copies the selected candidate text instead of generating a diagnosis or
+remediation. Candidate coverage is the user's responsibility in this first
+comparison feature. The open-ended runtime investigation remains available.
+Comparison results are transient; existing saved-run behavior is unchanged.
+
+The harder evaluation and production-regression results are in
+[evals/jev_pressure_report.md](evals/jev_pressure_report.md). The implementation
+checklist and deferred work are in [JEV_IMPLEMENTATION_PLAN.md](JEV_IMPLEMENTATION_PLAN.md).

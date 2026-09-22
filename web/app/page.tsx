@@ -9,9 +9,8 @@ export default function Home() {
           <h1>ResolveAI</h1>
         </div>
         <p className="page-introduction">
-          Follow the prepared synthetic demo or submit one runtime incident
-          bundle, then inspect a transient result or compare two explicitly saved
-          provenance snapshots.
+          Investigate an incident, inspect its evidence, or compare OpenRouter and
+          Jev on the same candidate hypotheses.
         </p>
       </header>
 

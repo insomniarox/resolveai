@@ -526,3 +526,53 @@ You understand the repository when you can explain these without opening a file:
 
 If any answer feels fuzzy, return to the matching study block and one targeted
 test. Do not reread the entire repository.
+
+## Jev bounded decision experiment
+
+Read `evals/jev_decision_cases.json`, `evals/evaluate_jev_decisions.py`,
+`tests/test_jev_decision_evaluation.py`, and `evals/jev_decision_report.md`.
+
+`build_trial()` constructs a shared state and Choice questions without passing
+expected answers to either provider. `attempt()` copies that request and retains
+output or a safe failure category. Two threads overlap provider calls for each
+input. `summarize()` keeps failed attempts in accuracy denominators.
+
+The prose variant renders every field and value as text. The paraphrase variant
+changes observation summaries only. Missing-evidence cases remove observations
+and the potentially revealing incident description. This is an evaluation of
+bounded decisions with supplied references, not the production investigation
+workflow or a retrieval benchmark. The independent evidence questions assess a
+specified claim, not the cause selected by a different question in the batch.
+
+Run `uv run pytest tests/test_jev_decision_evaluation.py -q` without API keys.
+
+## Product comparison reading path
+
+Read `resolve_ai/comparison_models.py`, `resolve_ai/comparison_reasoner.py`,
+`resolve_ai/comparison.py`, and the two comparison endpoints in `resolve_ai/api.py`.
+Then read `web/lib/comparison-api.ts` and
+`web/components/model-comparison-workspace.tsx`.
+
+`retrieve_investigation_references()` now owns the retrieval steps shared by
+ordinary investigations and comparison preparation. A comparison stores runtime
+documents once, retrieves once, gives each provider a copied context, and cleans
+up one scope after both branches complete. It owns a short-lived worker so browser
+disconnection cannot skip admission release or cleanup. There is no durable queue.
+
+The two provider adapters ask equivalent typed questions. Cause selection and
+support assessment are sequential within a branch, but branches run concurrently.
+Evidence membership is guaranteed by mapping answer keys back to the supplied
+records; the browser also rejects unknown Evidence IDs. This is a bounded
+assessment of candidate hypotheses, not a generated `Hypothesis` object.
+
+The stream parser rejects missing completion, repeated provider events, invalid
+measurements, and unknown candidates or citations. Completed results survive
+partial stream failure. Editing the input marks the displayed comparison stale;
+downloads retain the submitted input rather than current edits.
+
+Read `tests/test_comparison.py` for overlap, independent failure, size preflight,
+cleanup, and HTTP admission checks. The marked integration test verifies identical
+real PostgreSQL context, scoped deletion, and unchanged frozen runbooks. Browser
+stream tests are in `web/lib/comparison-api.test.ts`. The harder atomic evaluator
+and production-protocol regression measure different questions; read the report
+before comparing their scores.

@@ -5,7 +5,9 @@ import { useState } from "react";
 import { InvestigationWorkspace } from "@/components/investigation-workspace";
 import { RuntimeInvestigationWorkspace } from "@/components/runtime-investigation-workspace";
 
-type InvestigationMode = "guided" | "runtime";
+import { ModelComparisonWorkspace } from "@/components/model-comparison-workspace";
+
+type InvestigationMode = "guided" | "runtime" | "compare";
 
 export function InvestigationModeWorkspace() {
   const [mode, setMode] = useState<InvestigationMode>("guided");
@@ -17,7 +19,11 @@ export function InvestigationModeWorkspace() {
           <p className="section-kicker">Choose a reviewer path</p>
           <h2>Investigation input</h2>
         </div>
-        <div aria-label="Investigation input type" className="path-tabs" role="tablist">
+        <div
+          aria-label="Investigation input type"
+          className="path-tabs"
+          role="tablist"
+        >
           <button
             aria-controls="guided-workspace"
             aria-selected={mode === "guided"}
@@ -40,21 +46,36 @@ export function InvestigationModeWorkspace() {
           >
             Runtime input
           </button>
+          <button
+            aria-controls="compare-workspace"
+            aria-selected={mode === "compare"}
+            className="path-tab"
+            id="compare-tab"
+            onClick={() => setMode("compare")}
+            role="tab"
+            type="button"
+          >
+            Compare models
+          </button>
         </div>
         <p className="path-description">
           {mode === "guided"
             ? "Prepared synthetic fixtures provide a fast, deterministic architecture tour."
-            : "Enter one bounded version-1 incident bundle through a form or JSON. Process it transiently, or save up to two one-hour provenance snapshots for comparison."}
+            : mode === "compare"
+              ? "Run OpenRouter and Jev in parallel on shared evidence and candidate hypotheses."
+              : "Enter one bounded version-1 incident bundle through a form or JSON. Process it transiently, or save up to two one-hour provenance snapshots for comparison."}
         </p>
       </section>
 
       <div
-        aria-labelledby={mode === "guided" ? "guided-tab" : "runtime-tab"}
-        id={mode === "guided" ? "guided-workspace" : "runtime-workspace"}
+        aria-labelledby={`${mode}-tab`}
+        id={`${mode}-workspace`}
         role="tabpanel"
       >
         {mode === "guided" ? (
           <InvestigationWorkspace />
+        ) : mode === "compare" ? (
+          <ModelComparisonWorkspace />
         ) : (
           <RuntimeInvestigationWorkspace />
         )}
