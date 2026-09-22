@@ -90,49 +90,14 @@ def investigate_evidence(
     ) as investigation_span:
         investigation_span.set_attribute("resolveai.evidence.count", len(evidence))
 
-        retrieval_query = build_runbook_query(incident, evidence)
-        with tracer.start_as_current_span(
-            "retrieve_runbooks",
-            attributes={
-                "resolveai.retrieval.strategy": "semantic",
-                "resolveai.retrieval.limit": RUNBOOK_RETRIEVAL_LIMIT,
-            },
-        ) as retrieval_span:
-            retrieved_runbooks = semantic_search_runbooks(
-                database_url=database_url,
-                query=retrieval_query,
-                limit=RUNBOOK_RETRIEVAL_LIMIT,
+        retrieved_runbooks, retrieved_knowledge_documents = (
+            retrieve_investigation_references(
+                incident, evidence, database_url, knowledge_scope_id
             )
-            retrieval_span.set_attribute(
-                "resolveai.retrieval.result_count",
-                len(retrieved_runbooks),
-            )
-        investigation_span.set_attribute(
-            "resolveai.retrieval.result_count",
-            len(retrieved_runbooks),
         )
-
-        retrieved_knowledge_documents: list[RetrievedKnowledgeDocument] = []
-        if knowledge_scope_id is not None:
-            with tracer.start_as_current_span(
-                "retrieve_runtime_knowledge",
-                attributes={
-                    "resolveai.retrieval.strategy": "semantic",
-                    "resolveai.retrieval.limit": RUNBOOK_RETRIEVAL_LIMIT,
-                },
-            ) as runtime_retrieval_span:
-                retrieved_knowledge_documents = (
-                    semantic_search_runtime_knowledge_documents(
-                        database_url=database_url,
-                        scope_id=knowledge_scope_id,
-                        query=retrieval_query,
-                        limit=RUNBOOK_RETRIEVAL_LIMIT,
-                    )
-                )
-                runtime_retrieval_span.set_attribute(
-                    "resolveai.retrieval.result_count",
-                    len(retrieved_knowledge_documents),
-                )
+        investigation_span.set_attribute(
+            "resolveai.retrieval.result_count", len(retrieved_runbooks)
+        )
 
         retrieved_reference_knowledge = [
             *retrieved_runbooks,
@@ -371,3 +336,51 @@ def verify_hypothesis(
         retrieved_knowledge_documents=list(retrieved_knowledge_documents or []),
         reasoner=reasoner or deterministic_reasoner_metadata(),
     )
+
+
+def retrieve_investigation_references(
+    incident: Incident,
+    evidence: list[Evidence],
+    database_url: str,
+    knowledge_scope_id: UUID | None = None,
+) -> tuple[list[RetrievedRunbook], list[RetrievedKnowledgeDocument]]:
+    """Retrieve the same ordered references for single and paired execution."""
+    retrieval_query = build_runbook_query(incident, evidence)
+    with tracer.start_as_current_span(
+        "retrieve_runbooks",
+        attributes={
+            "resolveai.retrieval.strategy": "semantic",
+            "resolveai.retrieval.limit": RUNBOOK_RETRIEVAL_LIMIT,
+        },
+    ) as retrieval_span:
+        retrieved_runbooks = semantic_search_runbooks(
+            database_url=database_url,
+            query=retrieval_query,
+            limit=RUNBOOK_RETRIEVAL_LIMIT,
+        )
+        retrieval_span.set_attribute(
+            "resolveai.retrieval.result_count",
+            len(retrieved_runbooks),
+        )
+
+    retrieved_knowledge_documents: list[RetrievedKnowledgeDocument] = []
+    if knowledge_scope_id is not None:
+        with tracer.start_as_current_span(
+            "retrieve_runtime_knowledge",
+            attributes={
+                "resolveai.retrieval.strategy": "semantic",
+                "resolveai.retrieval.limit": RUNBOOK_RETRIEVAL_LIMIT,
+            },
+        ) as runtime_retrieval_span:
+            retrieved_knowledge_documents = semantic_search_runtime_knowledge_documents(
+                database_url=database_url,
+                scope_id=knowledge_scope_id,
+                query=retrieval_query,
+                limit=RUNBOOK_RETRIEVAL_LIMIT,
+            )
+            runtime_retrieval_span.set_attribute(
+                "resolveai.retrieval.result_count",
+                len(retrieved_knowledge_documents),
+            )
+
+    return retrieved_runbooks, retrieved_knowledge_documents

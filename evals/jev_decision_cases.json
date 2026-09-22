@@ -1,0 +1,410 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "dev-1",
+      "split": "development",
+      "source_case": "runtime-contract-long-document",
+      "state": {
+        "incident": {
+          "id": "RUNTIME-CONTRACT-761",
+          "title": "Invoice exports receive quota responses after a route change",
+          "description": "Invoice export requests stopped being accepted after traffic moved to a different provider tenant profile.",
+          "service": "invoice-export-runtime",
+          "started_at": "2026-08-20T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "RUNTIME-CONTRACT-761-DEP-1",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-08-20T08:56:00Z",
+            "summary": "The rollout changed invoice provider tenant profile 8 to profile 12.",
+            "details": {
+              "setting": "invoice_provider_tenant_profile",
+              "previous_value": 8,
+              "new_value": 12
+            }
+          },
+          {
+            "id": "RUNTIME-CONTRACT-761-LOG-1",
+            "source": "log",
+            "kind": "upstream_request_failed",
+            "observed_at": "2026-08-20T09:00:03Z",
+            "summary": "Every invoice export submitted through profile 12 returns HTTP 429 before a provider job ID is created.",
+            "details": {
+              "profile_id": 12,
+              "status_code": 429,
+              "provider_job_created": "false"
+            }
+          }
+        ],
+        "references": [
+          {
+            "id": "RUNTIME-CONTRACT-DOC-761-A",
+            "title": "Invoice provider tenant operations manual",
+            "content_type": "text/markdown",
+            "content": "# Invoice provider tenant operations manual\n\n## Request path\n\nInvoice exports leave the export API only after validation, account lookup, and document rendering complete. The provider connector then selects a tenant profile. A successful provider submission returns a job ID before the export API begins polling. If no job ID exists, later polling and document-download behavior cannot explain the failure.\n\n## Profile ownership\n\nProfile 8 is the ordinary interactive tenant. Finance operations owns its billing relationship, and the export service uses it for customer-triggered invoices. Profile 9 is reserved for nightly archive work. Profile 12 belongs to the low-volume migration tenant used during controlled data moves. Route configuration, rather than invoice account identity, selects one of these profiles.\n\n## Retries and timeouts\n\nThe connector retries HTTP 408 and selected HTTP 5xx responses twice. It does not retry HTTP 429 because the provider counts rejected retries against the same quota window. A timeout after a provider job ID is created belongs to polling. A response before job creation belongs to submission. These two stages have separate alerts and should not be combined when diagnosing an incident.\n\n## Credentials\n\nAll three tenant profiles currently use valid client credentials. Authentication failures return HTTP 401 and include credential_error in the connector details. Credential rotation does not change quota allocation. Profile selection also does not change worker count in the export service.\n\n## Capacity record\n\nProfile 8 permits 20,000 invoice submissions per UTC day. Profile 9 permits 5,000 archive submissions per UTC day. Profile 12 permits 200 submissions per UTC day. The migration job consumed profile 12's full daily allowance at 08:40 UTC on 2026-08-20. Requests routed to profile 12 after that time receive HTTP 429 before the provider creates a job. The allowance resets at 00:00 UTC. Moving interactive exports back to profile 8 restores the intended quota boundary after approval.\n\n## Interpretation rule\n\nUse the selected profile, response status, and job-creation stage together. HTTP 429 on profile 12 before job creation after 08:40 UTC indicates exhaustion of the migration tenant's daily submission allowance. It does not establish a provider-wide outage, an export-worker backlog, or a credential failure."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-761-B",
+            "title": "Invoice export retry and polling guide",
+            "content_type": "text/markdown",
+            "content": "Invoice polling begins only after the provider returns a job ID. Polling timeouts can delay completed documents, while HTTP 408 and selected HTTP 5xx submission failures receive two retries. HTTP 429 is not retried. Retry policy does not increase a tenant quota and cannot create a provider job when submission was rejected before a job ID existed."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-761-C",
+            "title": "Invoice export worker capacity",
+            "content_type": "text/plain",
+            "content": "Eight export workers render invoice documents. A worker backlog is present only when the render queue grows and healthy worker count falls below eight. Provider responses received after rendering do not measure worker capacity."
+          }
+        ]
+      },
+      "candidates": {
+        "a": "The selected provider tenant has exhausted its submission quota.",
+        "b": "Export workers are backlogged.",
+        "c": "Provider credentials are invalid."
+      },
+      "expected_cause": "a",
+      "claim": "The selected provider tenant has exhausted its submission quota.",
+      "expected_relations": [
+        "insufficient",
+        "supports"
+      ],
+      "paraphrases": [
+        "Requests switched from tenant profile 8 to tenant profile 12.",
+        "Profile 12 rejects every export with status 429 before assigning any job identifier."
+      ]
+    },
+    {
+      "id": "dev-2",
+      "split": "development",
+      "source_case": "runtime-contract-near-duplicate-revisions",
+      "state": {
+        "incident": {
+          "id": "RUNTIME-CONTRACT-762",
+          "title": "Receipt callbacks fail signature verification after a slot change",
+          "description": "Signing receipts reach the callback service but fail verification after the verifier moved to key slot B.",
+          "service": "receipt-callback-runtime",
+          "started_at": "2026-08-20T10:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "RUNTIME-CONTRACT-762-DEP-1",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-08-20T09:56:00Z",
+            "summary": "The verifier changed active receipt key slot A to slot B while retaining key revision 17.",
+            "details": {
+              "setting": "receipt_verification_key_slot",
+              "previous_value": 1,
+              "new_value": 2,
+              "loaded_revision": 17
+            }
+          },
+          {
+            "id": "RUNTIME-CONTRACT-762-LOG-1",
+            "source": "log",
+            "kind": "upstream_request_failed",
+            "observed_at": "2026-08-20T10:00:02Z",
+            "summary": "Receipt callbacks signed with slot B revision 18 are rejected because the verifier loaded revision 17.",
+            "details": {
+              "slot": "B",
+              "received_revision": 18,
+              "loaded_revision": 17,
+              "error": "signature_verification_failed"
+            }
+          }
+        ],
+        "references": [
+          {
+            "id": "RUNTIME-CONTRACT-DOC-762-A",
+            "title": "Receipt verification key inventory revision 18",
+            "content_type": "text/markdown",
+            "content": "Revision 18 is active from 2026-08-20. Slot A continues to use receipt key revision 17 during the overlap period. Slot B uses receipt key revision 18. A verifier selecting slot B must load revision 18 before accepting callbacks. Loading revision 17 in slot B rejects valid revision-18 signatures."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-762-B",
+            "title": "Receipt verification key inventory revision 17",
+            "content_type": "text/markdown",
+            "content": "Revision 17 was active until 2026-08-20. Slot A uses receipt key revision 17. Slot B also used receipt key revision 17 before the scheduled rotation. A verifier selecting slot B during revision 17 must load revision 17 before accepting callbacks."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-762-C",
+            "title": "Receipt callback retry policy",
+            "content_type": "text/plain",
+            "content": "The provider retries callbacks after HTTP 5xx responses. Signature rejection returns HTTP 401 and is not retried because repeating the same signed callback cannot change the verification key."
+          }
+        ]
+      },
+      "candidates": {
+        "a": "The verifier uses a stale signing key revision.",
+        "b": "The callback network is unavailable.",
+        "c": "The signing certificate expired."
+      },
+      "expected_cause": "a",
+      "claim": "The verifier uses a stale signing key revision.",
+      "expected_relations": [
+        "supports",
+        "supports"
+      ],
+      "paraphrases": [
+        "The verifier now selects slot B but still loads revision 17.",
+        "Callbacks carry signatures from slot B revision 18; verification fails against loaded revision 17."
+      ]
+    },
+    {
+      "id": "dev-3",
+      "split": "development",
+      "source_case": "runtime-contract-conflict-resolved-by-evidence",
+      "state": {
+        "incident": {
+          "id": "RUNTIME-CONTRACT-763",
+          "title": "Order updates stop behind a database wait",
+          "description": "Order writes time out while guidance describes both connection scarcity and row-lock contention.",
+          "service": "orders-runtime",
+          "started_at": "2026-08-20T11:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "RUNTIME-CONTRACT-763-LOG-1",
+            "source": "log",
+            "kind": "database_lock_wait",
+            "observed_at": "2026-08-20T11:00:02Z",
+            "summary": "Seven order updates are waiting on the same row lock owned by transaction 881.",
+            "details": {
+              "blocking_transaction": 881,
+              "blocked_table": "orders",
+              "waiting_updates": 7
+            }
+          },
+          {
+            "id": "RUNTIME-CONTRACT-763-LOG-2",
+            "source": "log",
+            "kind": "database_transaction_state",
+            "observed_at": "2026-08-20T11:00:03Z",
+            "summary": "Transaction 881 remains open and idle in transaction for 180 seconds.",
+            "details": {
+              "transaction": 881,
+              "state": "idle_in_transaction",
+              "age_seconds": 180
+            }
+          },
+          {
+            "id": "RUNTIME-CONTRACT-763-LOG-3",
+            "source": "log",
+            "kind": "database_connection_timeout",
+            "observed_at": "2026-08-20T11:00:04Z",
+            "summary": "One caller times out after waiting behind the blocked order updates.",
+            "details": {
+              "wait_ms": 30000
+            }
+          }
+        ],
+        "references": [
+          {
+            "id": "RUNTIME-CONTRACT-DOC-763-A",
+            "title": "Order row-lock incident guide",
+            "content_type": "text/markdown",
+            "content": "A shared blocking transaction ID across waiting order updates identifies row-lock contention. Confirm the lock owner and its transaction state. An idle transaction that retains the lock blocks later writers until it commits or rolls back. A downstream connection timeout can be an effect of the blocked work rather than proof that the connection pool is undersized."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-763-B",
+            "title": "Order database connection-capacity guide",
+            "content_type": "text/markdown",
+            "content": "Connection-pool exhaustion can produce database connection timeouts when all sessions are assigned. Diagnose capacity only when pool utilization or a pool-size change is observed. A named row-lock owner and waiting transaction chain indicate lock contention instead of pool exhaustion."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-763-C",
+            "title": "Order API timeout policy",
+            "content_type": "text/plain",
+            "content": "The order API stops waiting after thirty seconds. This timeout limits caller latency but does not identify whether the database wait came from a lock, connection capacity, or another operation."
+          }
+        ]
+      },
+      "candidates": {
+        "a": "The database connection pool is undersized.",
+        "b": "An idle transaction holds a row lock needed by later writers.",
+        "c": "Provider credentials are invalid."
+      },
+      "expected_cause": "b",
+      "claim": "An idle transaction holds a row lock needed by later writers.",
+      "expected_relations": [
+        "supports",
+        "supports",
+        "insufficient"
+      ],
+      "paraphrases": [
+        "Seven writes to orders are blocked behind the row lock held by transaction 881.",
+        "The same transaction, 881, has been open without activity for 180 seconds.",
+        "A waiting caller eventually exceeds its connection wait limit."
+      ]
+    },
+    {
+      "id": "dev-4",
+      "split": "development",
+      "source_case": "runtime-contract-conflict-requires-abstention",
+      "state": {
+        "incident": {
+          "id": "RUNTIME-CONTRACT-764",
+          "title": "Tax connector cannot complete a TLS handshake",
+          "description": "The only observation is a generic TLS validation failure after a route change.",
+          "service": "tax-connector-runtime",
+          "started_at": "2026-08-20T12:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "RUNTIME-CONTRACT-764-DEP-1",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-08-20T11:57:00Z",
+            "summary": "The deployment changed tax connector route 51 to route 52.",
+            "details": {
+              "setting": "tax_connector_route",
+              "previous_value": 51,
+              "new_value": 52
+            }
+          },
+          {
+            "id": "RUNTIME-CONTRACT-764-LOG-1",
+            "source": "log",
+            "kind": "tls_handshake_validation_failed",
+            "observed_at": "2026-08-20T12:00:03Z",
+            "summary": "TLS validation failed on route 52 without a recorded validation reason or peer certificate identity.",
+            "details": {
+              "route": 52,
+              "validation_reason": "not_recorded"
+            }
+          }
+        ],
+        "references": [
+          {
+            "id": "RUNTIME-CONTRACT-DOC-764-A",
+            "title": "Tax route certificate-expiry guide",
+            "content_type": "text/markdown",
+            "content": "An expired client or peer certificate can cause TLS validation failure. Confirm the certificate expiry timestamp or an explicit expired-certificate validation reason before selecting this diagnosis. A generic handshake failure does not establish expiry."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-764-B",
+            "title": "Tax route hostname-identity guide",
+            "content_type": "text/markdown",
+            "content": "A route change can expose a hostname not covered by the active certificate. Confirm the requested hostname and certificate identity or an explicit hostname-mismatch reason before selecting this diagnosis. A generic handshake failure after a route change does not establish a mismatch."
+          },
+          {
+            "id": "RUNTIME-CONTRACT-DOC-764-C",
+            "title": "Tax connector retry timing",
+            "content_type": "text/plain",
+            "content": "The tax connector retries transport interruptions once. It does not retry certificate-validation failures because another attempt with the same certificate inputs produces the same result."
+          }
+        ]
+      },
+      "candidates": {
+        "a": "The peer certificate expired.",
+        "b": "The certificate does not cover the requested hostname.",
+        "c": "The connector exhausted its request quota."
+      },
+      "expected_cause": "none",
+      "claim": "The peer certificate expired.",
+      "expected_relations": [
+        "insufficient",
+        "insufficient"
+      ],
+      "paraphrases": [
+        "The tax connector was moved from route 51 to route 52.",
+        "Route 52 fails TLS validation, but no certificate identity or specific failure reason was captured."
+      ]
+    },
+    {
+      "id": "holdout-cache",
+      "split": "holdout",
+      "source_case": null,
+      "state": {
+        "incident": {
+          "title": "Catalog still shows retired prices",
+          "description": "Catalog responses show earlier prices after an approved price update."
+        },
+        "evidence": [
+          {
+            "id": "E1",
+            "summary": "The pricing database contains the approved new prices."
+          },
+          {
+            "id": "E2",
+            "summary": "The catalog still returns old prices from its cache; the invalidation subscriber stopped receiving messages."
+          }
+        ],
+        "references": [
+          {
+            "id": "R1",
+            "content": "The catalog reads cached prices until a price-change notification evicts them. Database updates alone do not evict cached values. A disconnected invalidation subscriber can leave old prices visible."
+          },
+          {
+            "id": "R2",
+            "content": "A failed database write leaves earlier prices in the pricing database. Check persisted values before attributing stale output to write failure."
+          }
+        ]
+      },
+      "candidates": {
+        "a": "The approved price update failed to persist.",
+        "b": "Catalog cache invalidation stopped receiving price-change notifications.",
+        "c": "Client authentication failed."
+      },
+      "expected_cause": "b",
+      "claim": "Catalog cache invalidation stopped receiving price-change notifications.",
+      "expected_relations": [
+        "insufficient",
+        "supports"
+      ],
+      "paraphrases": [
+        "Persisted prices match the approved update.",
+        "Cached catalog prices remain unchanged, and its invalidation listener no longer receives update events."
+      ]
+    },
+    {
+      "id": "holdout-storage",
+      "split": "holdout",
+      "source_case": null,
+      "state": {
+        "incident": {
+          "title": "Report delivery fails",
+          "description": "Reports are rendered but cannot be delivered to object storage."
+        },
+        "evidence": [
+          {
+            "id": "E1",
+            "summary": "Rendering completes and the upload request reaches object storage."
+          },
+          {
+            "id": "E2",
+            "summary": "The upload fails with AccessDenied; the audit record identifies an explicit deny on object creation for the uploader role."
+          }
+        ],
+        "references": [
+          {
+            "id": "R1",
+            "content": "Object storage evaluates explicit deny rules before allow rules. An explicit deny on object creation prevents the uploader role from writing reports even if it also has an allow rule."
+          },
+          {
+            "id": "R2",
+            "content": "An exhausted renderer queue prevents rendering completion. A missing storage container returns NoSuchBucket, while a policy rejection returns AccessDenied."
+          }
+        ]
+      },
+      "candidates": {
+        "a": "The report renderer queue is exhausted.",
+        "b": "The storage container does not exist.",
+        "c": "An explicit policy deny blocks the uploader from creating objects."
+      },
+      "expected_cause": "c",
+      "claim": "The storage container does not exist.",
+      "expected_relations": [
+        "insufficient",
+        "contradicts"
+      ],
+      "paraphrases": [
+        "The report finishes rendering and reaches the storage upload endpoint.",
+        "Storage rejects creation with AccessDenied, and its audit trail names a deny rule for the uploading role."
+      ]
+    }
+  ]
+}

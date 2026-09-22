@@ -1,0 +1,1548 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A detailed guide to ResolveAI: domain models, request flow, retrieval, reasoning, validation, storage, functions, and tests.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23235bb0'/%3E%3Cpath d='M16 18h14c10 0 18 6 18 14s-8 14-18 14H16zm10 8v12h4c5 0 8-2 8-6s-3-6-8-6z' fill='white'/%3E%3C/svg%3E">
+  <title>ResolveAI · A guide to the investigation pipeline</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09100f;
+      --bg-raised: #0e1816;
+      --panel: #12201d;
+      --panel-2: #172925;
+      --line: #29413b;
+      --line-strong: #3b5e55;
+      --text: #eef6f1;
+      --muted: #9bb0aa;
+      --soft: #c8d7d2;
+      --mint: #7ee2b8;
+      --mint-strong: #33c68c;
+      --amber: #f2bd62;
+      --coral: #ff8d77;
+      --blue: #86bff7;
+      --violet: #baa9ff;
+      --code: #07100e;
+      --shadow: 0 24px 60px rgb(0 0 0 / 24%);
+      --radius: 18px;
+      --content: 1180px;
+    }
+
+    [data-theme="light"] {
+      color-scheme: light;
+      --bg: #f4f6f1;
+      --bg-raised: #ffffff;
+      --panel: #ffffff;
+      --panel-2: #eaf1ed;
+      --line: #cfddd6;
+      --line-strong: #9eb8ad;
+      --text: #13211d;
+      --muted: #5b7068;
+      --soft: #334940;
+      --mint: #087a52;
+      --mint-strong: #096e4b;
+      --amber: #95600b;
+      --coral: #b73b2a;
+      --blue: #25669f;
+      --violet: #614db4;
+      --code: #111b18;
+      --shadow: 0 24px 60px rgb(35 62 52 / 10%);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 92px;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% -10%, rgb(51 198 140 / 13%), transparent 30rem),
+        radial-gradient(circle at 92% 8%, rgb(134 191 247 / 9%), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; }
+
+    :focus-visible {
+      outline: 3px solid var(--amber);
+      outline-offset: 3px;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      top: 10px;
+      left: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: var(--text);
+      color: var(--bg);
+      transform: translateY(-160%);
+    }
+
+    .skip-link:focus { transform: none; }
+
+    .progress {
+      position: fixed;
+      z-index: 80;
+      inset: 0 0 auto;
+      height: 3px;
+      background: transparent;
+    }
+
+    .progress span {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: linear-gradient(90deg, var(--mint-strong), var(--blue));
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 70;
+      top: 0;
+      border-bottom: 1px solid rgb(126 226 184 / 14%);
+      background: color-mix(in srgb, var(--bg) 84%, transparent);
+      backdrop-filter: blur(16px);
+    }
+
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: min(calc(100% - 32px), var(--content));
+      min-height: 68px;
+      margin: auto;
+      gap: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--text);
+      font-size: .9rem;
+      font-weight: 750;
+      letter-spacing: .02em;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      place-items: center;
+      color: var(--mint);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .77rem;
+    }
+
+    .topnav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .topnav a {
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: .8rem;
+      text-decoration: none;
+    }
+
+    .topnav a:hover, .topnav a[aria-current="true"] {
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    .icon-button {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--soft);
+      cursor: pointer;
+      place-items: center;
+    }
+
+    main, footer {
+      width: min(calc(100% - 32px), var(--content));
+      margin-inline: auto;
+    }
+
+    .hero {
+      position: relative;
+      display: grid;
+      min-height: calc(100vh - 68px);
+      padding: clamp(72px, 10vw, 130px) 0 90px;
+      align-content: center;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      position: absolute;
+      z-index: -1;
+      right: 2%;
+      bottom: 13%;
+      width: 280px;
+      height: 280px;
+      border: 1px solid rgb(126 226 184 / 16%);
+      border-radius: 50%;
+      box-shadow: 0 0 0 50px rgb(126 226 184 / 3%), 0 0 0 100px rgb(126 226 184 / 2%);
+      content: "";
+    }
+
+    .eyebrow, .kicker {
+      margin: 0 0 12px;
+      color: var(--mint);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .77rem;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { text-wrap: pretty; }
+
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-size: clamp(3.3rem, 10vw, 7.9rem);
+      font-weight: 760;
+      letter-spacing: -.075em;
+      line-height: .88;
+    }
+
+    h1 span { color: var(--mint); }
+
+    .hero-lede {
+      max-width: 750px;
+      margin: 34px 0 0;
+      color: var(--soft);
+      font-size: clamp(1.05rem, 2vw, 1.35rem);
+      line-height: 1.55;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 34px;
+    }
+
+    .pill {
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgb(18 32 29 / 55%);
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .74rem;
+    }
+
+    .hero-note {
+      display: grid;
+      max-width: 860px;
+      margin-top: 55px;
+      padding: 22px 24px;
+      border-left: 3px solid var(--mint);
+      background: linear-gradient(90deg, rgb(51 198 140 / 9%), transparent);
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+    }
+
+    .hero-note strong {
+      color: var(--mint);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1.5rem;
+    }
+
+    .hero-note p { margin: 0; color: var(--soft); }
+
+    section.study-section {
+      padding: 100px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-heading {
+      display: grid;
+      margin-bottom: 42px;
+      grid-template-columns: minmax(0, 1.1fr) minmax(260px, .7fr);
+      gap: 40px;
+      align-items: end;
+    }
+
+    h2 {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(2rem, 5vw, 4.25rem);
+      letter-spacing: -.05em;
+      line-height: 1;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 1.12rem;
+      letter-spacing: -.02em;
+      line-height: 1.3;
+    }
+
+    .section-intro {
+      margin: 0;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .verdict-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .verdict {
+      min-height: 188px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .verdict .number {
+      display: block;
+      margin-bottom: 28px;
+      color: var(--mint);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .75rem;
+    }
+
+    .verdict p { margin: 10px 0 0; color: var(--muted); font-size: .91rem; }
+
+    .topology {
+      display: grid;
+      grid-template-columns: repeat(7, auto);
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      padding: 30px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      overflow-x: auto;
+    }
+
+    .topology-node {
+      min-width: 126px;
+      padding: 18px;
+      border: 1px solid var(--line-strong);
+      border-radius: 13px;
+      background: var(--bg-raised);
+      text-align: center;
+    }
+
+    .topology-node code { color: var(--mint); font-size: .78rem; }
+    .topology-node span { display: block; margin-top: 5px; color: var(--muted); font-size: .75rem; }
+    .arrow { color: var(--line-strong); font-size: 1.3rem; }
+
+    .explorer {
+      display: grid;
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      grid-template-columns: 380px 1fr;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .layer-list {
+      display: grid;
+      padding: 12px;
+      border-right: 1px solid var(--line);
+      gap: 6px;
+    }
+
+    .layer-button {
+      display: grid;
+      padding: 16px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+    }
+
+    .layer-button:hover { background: var(--panel-2); color: var(--text); }
+    .layer-button[aria-selected="true"] { border-color: var(--line-strong); background: var(--panel-2); color: var(--text); }
+    .layer-button .index { color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .layer-button small { display: block; margin-top: 3px; color: var(--muted); }
+
+    .layer-detail { min-height: 410px; padding: 36px; }
+    .layer-panel[hidden] { display: none; }
+    .layer-panel h3 { margin-bottom: 13px; font-size: 1.55rem; }
+    .layer-panel > p { max-width: 700px; color: var(--soft); }
+    .file-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0; }
+    .file-ref, .source-link {
+      color: var(--blue);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .75rem;
+      text-decoration: none;
+    }
+    .file-ref { padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg-raised); }
+    .source-link:hover { text-decoration: underline; }
+
+    .boundary {
+      margin-top: 24px;
+      padding: 16px 18px;
+      border-left: 3px solid var(--amber);
+      background: rgb(242 189 98 / 7%);
+      color: var(--soft);
+      font-size: .9rem;
+    }
+
+    .flow-toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+      align-items: center;
+    }
+
+    .segmented {
+      display: inline-flex;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    .segmented button {
+      padding: 9px 14px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .segmented button[aria-selected="true"] { background: var(--mint); color: #072016; font-weight: 750; }
+    .flow-hint { margin: 0; color: var(--muted); font-size: .86rem; }
+
+    .trace { display: grid; gap: 10px; }
+    .trace-card {
+      position: relative;
+      display: grid;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      grid-template-columns: 72px minmax(0, 1fr) auto;
+      align-items: stretch;
+      overflow: hidden;
+    }
+
+    .trace-card::after {
+      position: absolute;
+      bottom: -11px;
+      left: 35px;
+      width: 1px;
+      height: 11px;
+      background: var(--line-strong);
+      content: "";
+    }
+
+    .trace-card:last-child::after { display: none; }
+    .trace-step { display: grid; background: var(--panel-2); color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; place-items: center; }
+    .trace-copy { padding: 18px 20px; }
+    .trace-copy p { margin: 5px 0 0; color: var(--muted); font-size: .88rem; }
+    .trace-owner { padding: 18px 20px; color: var(--blue); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .75rem; align-self: center; }
+    [data-trace][hidden] { display: none; }
+
+    .data-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .data-card {
+      position: relative;
+      min-height: 260px;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      overflow: hidden;
+    }
+
+    .data-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--card-accent); content: ""; }
+    .data-card.fact { --card-accent: var(--mint); }
+    .data-card.reference { --card-accent: var(--blue); }
+    .data-card.proposal { --card-accent: var(--violet); }
+    .data-card .type { color: var(--card-accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
+    .data-card h3 { margin-top: 18px; }
+    .data-card p { color: var(--muted); font-size: .91rem; }
+    .data-card code { color: var(--soft); }
+    .rule { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid var(--line); color: var(--soft); font-size: .86rem; }
+
+    .pattern-stack { display: grid; gap: 24px; }
+    .pattern {
+      display: grid;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      grid-template-columns: minmax(270px, .72fr) minmax(0, 1.28fr);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .pattern-copy { padding: 30px; }
+    .pattern-copy .pattern-number { color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; }
+    .pattern-copy h3 { margin-top: 18px; font-size: 1.4rem; }
+    .pattern-copy p { color: var(--muted); font-size: .91rem; }
+    .pattern-copy .lesson { color: var(--soft); }
+
+    .code-wrap { position: relative; min-width: 0; background: var(--code); }
+    pre {
+      min-height: 100%;
+      margin: 0;
+      padding: 28px;
+      overflow: auto;
+      color: #dbe8e2;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .79rem;
+      line-height: 1.72;
+      tab-size: 4;
+    }
+
+    .code-toolbar {
+      position: absolute;
+      z-index: 2;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 6px;
+    }
+
+    .copy-button {
+      padding: 6px 9px;
+      border: 1px solid #315148;
+      border-radius: 7px;
+      background: #12201d;
+      color: #aac0b8;
+      font-size: .7rem;
+      cursor: pointer;
+    }
+
+    .kw { color: #ff9f8d; }
+    .fn { color: #86bff7; }
+    .ty { color: #baa9ff; }
+    .st { color: #d3c985; }
+    .cm { color: #789089; }
+    .nm { color: #7ee2b8; }
+
+    .decision-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .decision-card { padding: 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .decision-card h3 { display: flex; gap: 10px; align-items: center; }
+    .decision-card h3 span { color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .75rem; }
+    .decision-card p { color: var(--muted); font-size: .9rem; }
+    .decision-pair { display: grid; margin-top: 20px; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .decision-pair div { padding: 15px; border-radius: 10px; background: var(--bg-raised); }
+    .decision-pair strong { display: block; margin-bottom: 6px; color: var(--soft); font-size: .8rem; }
+    .decision-pair p { margin: 0; font-size: .82rem; }
+
+    .failure-table, .storage-table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); background: var(--panel); }
+    .failure-table th, .failure-table td, .storage-table th, .storage-table td { padding: 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .failure-table th, .storage-table th { color: var(--muted); font-size: .75rem; letter-spacing: .07em; text-transform: uppercase; }
+    .failure-table td, .storage-table td { color: var(--soft); font-size: .87rem; }
+    .failure-table code, .storage-table code { color: var(--blue); }
+    .good { color: var(--mint) !important; }
+    .warn { color: var(--amber) !important; }
+    .bad { color: var(--coral) !important; }
+
+    .measurement {
+      display: grid;
+      padding: 30px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      grid-template-columns: minmax(0, 1fr) minmax(300px, .8fr);
+      gap: 36px;
+    }
+
+    .bar-list { display: grid; gap: 18px; }
+    .metric-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; color: var(--soft); font-size: .84rem; }
+    .bar { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+    .bar span { display: block; height: 100%; width: var(--value); border-radius: inherit; background: var(--metric-color, var(--mint)); }
+    .measurement-copy p { color: var(--muted); }
+    .measurement-copy strong { color: var(--text); }
+
+    .limits-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 18px; }
+    .keep-card, .recommendations { padding: 30px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .keep-card ul, .recommendations ol { padding-left: 20px; color: var(--muted); }
+    .keep-card li, .recommendations li { margin: 12px 0; }
+    .keep-card strong, .recommendations strong { color: var(--soft); }
+    .priority { display: inline-block; min-width: 30px; color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .reading-path { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; counter-reset: reading; }
+    .reading-card { display: block; min-height: 160px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); text-decoration: none; counter-increment: reading; }
+    .reading-card::before { display: block; margin-bottom: 25px; color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .75rem; content: "0" counter(reading); }
+    .reading-card:hover { border-color: var(--mint); transform: translateY(-2px); }
+    .reading-card span { display: block; margin-top: 8px; color: var(--muted); font-size: .8rem; }
+
+    details { border-top: 1px solid var(--line); }
+    details:first-of-type { border-top: 0; }
+    summary { padding: 18px 0; color: var(--soft); font-weight: 700; cursor: pointer; }
+    details p { margin: 0 0 20px; color: var(--muted); }
+
+    footer { padding: 45px 0 70px; border-top: 1px solid var(--line); color: var(--muted); font-size: .84rem; }
+    footer div { display: flex; justify-content: space-between; gap: 20px; }
+
+    .only-mobile { display: none; }
+
+    @media (max-width: 900px) {
+      .topnav { display: none; }
+      .section-heading, .explorer, .pattern, .measurement, .limits-grid { grid-template-columns: 1fr; }
+      .verdict-grid, .data-grid { grid-template-columns: 1fr; }
+      .layer-list { grid-template-columns: repeat(2, 1fr); border-right: 0; border-bottom: 1px solid var(--line); }
+      .layer-detail { min-height: 0; }
+      .decision-grid { grid-template-columns: 1fr; }
+      .reading-path { grid-template-columns: repeat(2, 1fr); }
+      .only-mobile { display: grid; }
+    }
+
+    @media (max-width: 600px) {
+      main, footer, .topbar-inner { width: min(calc(100% - 22px), var(--content)); }
+      .hero { min-height: auto; padding-block: 72px; }
+      .hero-note { grid-template-columns: 1fr; }
+      section.study-section { padding: 72px 0; }
+      .section-heading { gap: 18px; }
+      .layer-list { grid-template-columns: 1fr; }
+      .layer-detail, .pattern-copy, .measurement, .keep-card, .recommendations { padding: 22px; }
+      .flow-toolbar { align-items: flex-start; flex-direction: column; }
+      .trace-card { grid-template-columns: 52px 1fr; }
+      .trace-owner { padding: 0 16px 16px 72px; grid-column: 1 / -1; }
+      .decision-pair { grid-template-columns: 1fr; }
+      .failure-table, .storage-table { display: block; overflow-x: auto; }
+      .reading-path { grid-template-columns: 1fr; }
+      footer div { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+
+    /* Field-guide layout: a blue document canvas with an amber execution trace. */
+    :root, [data-theme="light"] {
+      color-scheme: light; --bg:#edf2f8; --bg-raised:#ffffff; --panel:#ffffff;
+      --panel-2:#e3ebf5; --line:#c4d1e2; --line-strong:#7b93b3;
+      --text:#172d4b; --muted:#506583; --soft:#324d70;
+      --mint:#235bb0; --mint-strong:#235bb0; --amber:#8a5300;
+      --coral:#a12e40; --blue:#235bb0; --violet:#67518f; --code:#14263e;
+      --shadow:none; --radius:10px; --content:1180px;
+    }
+    [data-theme="dark"] {
+      color-scheme:dark; --bg:#152238; --bg-raised:#1c2d46; --panel:#1c2d46;
+      --panel-2:#263b57; --line:#405573; --line-strong:#7690b3;
+      --text:#e5edf9; --muted:#a9bedb; --soft:#c0d0e7;
+      --mint:#95bfff; --mint-strong:#95bfff; --amber:#efbc69;
+      --coral:#ffa0af; --blue:#95bfff; --violet:#cab6ff; --code:#0d192c;
+    }
+    body { background:var(--bg); font-family:"Segoe UI",Calibri,Arial,sans-serif; font-size:17px; }
+    h1,h2 {font-family:"Trebuchet MS","Segoe UI",sans-serif;letter-spacing:-.04em;}
+    h1 {font-size:clamp(2.7rem,5.6vw,5.1rem);line-height:1.05;max-width:100%;}
+    h2 {font-size:clamp(1.8rem,3vw,2.6rem);line-height:1.15;}
+    h3 {line-height:1.35;}
+    h4 {font-size:1rem;margin:0 0 8px;}
+    code,pre,.kicker,.eyebrow {font-family:"Cascadia Code",Consolas,"Liberation Mono",monospace;}
+    :not(pre)>code {overflow-wrap:anywhere;}
+    .topbar {background:var(--bg-raised);border-bottom:1px solid var(--line);backdrop-filter:none;}
+    .topbar-inner {width:100%;padding:0 28px;}
+    .progress span {background:var(--mint);}
+    main {width:auto;max-width:1120px;margin:0 38px 0 304px;}
+    .contents {position:fixed;left:0;top:69px;bottom:0;width:268px;padding:26px 18px 20px 28px;border-right:1px solid var(--line);overflow:auto;background:var(--bg-raised);}
+    .contents details {border:0;padding:0;background:none;}
+    .contents summary {font-size:1rem;cursor:pointer;}
+    .contents summary span {display:block;color:var(--muted);font-size:.72rem;font-weight:400;margin-top:3px;}
+    .chapter-nav {display:grid;gap:2px;margin-top:16px;}
+    .chapter-nav a {padding:5px 9px;font-size:.79rem;color:var(--muted);text-decoration:none;border-left:2px solid transparent;line-height:1.4;}
+    .chapter-nav a:hover,.chapter-nav a[aria-current="location"] {color:var(--mint);background:var(--panel-2);border-left-color:var(--mint);}
+    .companion {display:block;font-size:.76rem;margin:20px 10px;color:var(--mint);}
+    .hero {min-height:0;padding:68px 0 54px;overflow:visible;}
+    .hero::after {display:none;}
+    .pill {background:var(--panel-2);color:var(--soft);border-color:var(--line);}
+    .segmented button[aria-selected="true"] {color:var(--bg-raised);}
+    .copy-button {background:var(--code);}
+    .hero-lede {max-width:760px;margin-top:24px;font-size:1.2rem;}
+    .hero-note {display:block;border:0;border-left:4px solid var(--amber);background:var(--panel);padding:20px 24px;margin-top:30px;}
+    .hero-note p {margin:8px 0 0;}
+    .route-label {font-size:.73rem;text-transform:uppercase;letter-spacing:.08em;color:var(--amber);font-weight:700;}
+    .reading-options {display:flex;flex-wrap:wrap;gap:12px 24px;margin:24px 0;font-size:.88rem;color:var(--mint);}
+    .study-section {padding:54px 0;scroll-margin-top:28px;}
+    .section-heading {display:block;margin-bottom:28px;}
+    .section-intro {max-width:760px;margin:16px 0 0;font-size:1.03rem;}
+    .study-section>p,.prose p {max-width:80ch;}
+    .study-section>h3,.prose h3 {margin-top:30px;}
+    .study-section>p,.prose p,.explain-steps p {color:var(--soft);}
+    .note {background:var(--panel-2);border-left:3px solid var(--mint);padding:20px 24px;margin:26px 0;}
+    .source-line {font-size:.79rem;color:var(--muted);margin-top:20px;}
+    .source-line a,.function-entry a {color:var(--mint);text-underline-offset:3px;}
+    .table-scroll {max-width:100%;overflow-x:auto;margin:24px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel);}
+    .table-scroll table {width:100%;border-collapse:collapse;margin:0;min-width:580px;font-size:.9rem;}
+    th,td {text-align:left;vertical-align:top;padding:16px;border-bottom:1px solid var(--line);}
+    th {font-size:.78rem;background:var(--panel-2);color:var(--text);}
+    td {color:var(--soft);}
+    td:first-child {width:25%;color:var(--text);}
+    tr:last-child td {border-bottom:0;}
+    .timeline-facts {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line);border-top:4px solid var(--amber);background:var(--panel);}
+    .timeline-facts>div {padding:22px;border-right:1px solid var(--line);overflow-wrap:anywhere;}
+    .timeline-facts span {display:block;color:var(--amber);font-family:Consolas,monospace;font-size:.8rem;}
+    .timeline-facts strong {display:block;margin-top:12px;}
+    .timeline-facts p {font-size:.85rem;color:var(--muted);}
+    .explain-steps {padding-left:25px;}
+    .explain-steps li {padding-left:12px;margin:25px 0;}
+    .explain-steps li::marker {color:var(--mint);font-weight:bold;}
+    .verdict-grid,.boundary-grid {grid-template-columns:repeat(3,minmax(0,1fr));}
+    .decision-grid,.limits-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+    .pattern-grid,.measurement {grid-template-columns:1fr;}
+    .pattern-card {min-width:0;}
+    .code-wrap {margin:20px 0;max-width:100%;min-width:0;}
+    pre {color:#e1eaf9;background:var(--code);font-size:.83rem;line-height:1.65;overflow:auto;}
+    pre code {color:inherit;white-space:pre;overflow-wrap:normal;}
+    .code-toolbar {background:var(--code);border-bottom:1px solid #405573;}
+    .copy-button {color:#dce8f9;border-color:#6e85a5;}
+    .search-label {display:block;font-weight:600;margin-bottom:8px;}
+    #function-search {width:100%;padding:14px 16px;border:1px solid var(--line-strong);border-radius:7px;background:var(--panel);color:var(--text);font:inherit;}
+    #function-count {font-size:.82rem;color:var(--muted);}
+    .function-index {display:grid;gap:22px;}
+    .function-module {min-width:0;}
+    .function-module>h3 {font:600 1rem Consolas,monospace;padding:12px 0;border-bottom:2px solid var(--line-strong);}
+    .function-entry {padding:18px 20px;background:var(--panel);border-bottom:1px solid var(--line);}
+    .function-entry p {margin:8px 0;font-size:.88rem;color:var(--soft);}
+    .function-entry a {font-size:.78rem;}
+    .function-signature {overflow-wrap:anywhere;}
+    [hidden] {display:none!important;}
+    footer {width:auto;margin-left:304px;margin-right:38px;padding:30px 0 40px;}
+    footer>div {width:auto;display:block;}
+    footer span {display:block;}
+    @media(min-width:1500px) {main {margin-left:max(304px,calc((100vw - 950px)/2));max-width:1040px;}}
+    @media(max-width:1100px) {.contents{width:230px;padding-left:18px;}main{margin-left:258px;margin-right:28px;}footer{margin-left:258px;}.verdict-grid,.boundary-grid{grid-template-columns:1fr;}.decision-grid,.limits-grid{grid-template-columns:1fr;}.topology{flex-wrap:wrap;}.explorer{grid-template-columns:1fr;}}
+    @media(max-width:760px) {
+      .topbar-inner{padding:0 16px;gap:8px;}.brand{font-size:.8rem;}.topnav{display:none;}
+      .contents{position:static;width:auto;padding:14px 20px;border-right:0;border-bottom:1px solid var(--line);}
+      .contents .companion{display:none;}.chapter-nav{grid-template-columns:repeat(2,minmax(0,1fr));}
+      main{margin:0 20px;width:auto;}footer{margin-left:20px;padding-right:20px;}
+      .hero{padding:42px 0;}.hero-meta{gap:6px;}.hero-lede{font-size:1.05rem;}
+      .timeline-facts{grid-template-columns:1fr;}.timeline-facts>div{border-right:0;border-bottom:1px solid var(--line);}
+      .study-section{padding:38px 0;}.trace-card{grid-template-columns:32px minmax(0,1fr);}.trace-owner{grid-column:2;}
+      .layer-panel{padding:22px;}.reading-path{grid-template-columns:1fr;}.function-entry{padding:16px 12px;}
+      .topology-node{min-width:0;}.hero-note{padding:16px;}.section-heading{gap:0;}
+    }
+    @media print {
+      :root,[data-theme]{--bg:white;--panel:white;--panel-2:#f1f3f7;--text:#111;--soft:#222;--muted:#444;--line:#bbb;--mint:#234d85;}
+      body{background:white;color:#111;font-size:10pt;}.topbar,.contents,.progress,.copy-button,.reading-options,#function-search,.search-label,#function-count{display:none!important;}
+      main,footer{margin:0;max-width:none;width:100%;}.hero{padding:20px 0;}.study-section{padding:25px 0;}
+      [hidden]{display:block!important;}.trace-tabs,.layer-list{display:none;}.layer-panel,.trace{margin:15px 0;}
+      .table-scroll{overflow:visible;}.table-scroll table{min-width:0;}pre{white-space:pre-wrap;}pre code{white-space:pre-wrap;overflow-wrap:anywhere;}
+      h2,h3,h4{break-after:avoid;}tr,.function-entry{break-inside:avoid;}a{color:inherit;}
+    }
+
+    @media(max-width:760px) {section.study-section {padding:38px 0;} .data-grid {grid-template-columns:1fr;} footer {width:auto;}}
+  </style>
+<noscript><style>.layer-panel[hidden],[data-trace][hidden]{display:block!important}.layer-list,.segmented,#theme-toggle,.copy-button,.search-label,#function-search{display:none}.layer-panel{margin-bottom:20px}</style></noscript>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the case study</a>
+  <div class="progress" aria-hidden="true"><span id="reading-progress"></span></div>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top"><span class="brand-mark">R/A</span> ResolveAI study</a>
+      <nav class="topnav" aria-label="Quick navigation"><a href="#worked-example">Walkthrough</a><a href="#functions">Functions</a><a href="#study-lab">Run locally</a></nav>
+      <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch to light theme" title="Change theme">◐</button>
+    </div>
+  </header>
+
+<aside class="contents"><details open><summary>Contents <span>Implementation guide</span></summary><nav class="chapter-nav" aria-label="Guide chapters"><a href="#shape">Project scope</a><a href="#principles">Underlying principles</a><a href="#domain">Domain models</a><a href="#architecture">Architecture explorer</a><a href="#flow">Request traces</a><a href="#worked-example">INC-001, step by step</a><a href="#retrieval-details">Embeddings and retrieval</a><a href="#runtime-contract">Runtime input contract</a><a href="#provider-details">Reasoner and output checks</a><a href="#boundaries">Evidence and authority</a><a href="#patterns">Implementation patterns</a><a href="#functions">Function reference</a><a href="#choices">Design tradeoffs</a><a href="#failure-model">Failure categories</a><a href="#storage">Data lifetime</a><a href="#lifecycle">Cleanup and saved runs</a><a href="#http">HTTP contract</a><a href="#browser">Browser data flow</a><a href="#evaluation">Evaluation results</a><a href="#jev-experiment">Jev decision experiment</a><a href="#model-comparison">Compare models</a><a href="#limits">Limits and change triggers</a><a href="#study-lab">Run and study the code</a><a href="#glossary">Glossary</a><a href="#reading-order">Reading order and review</a></nav></details><a class="companion" href="code-study.md">Companion code-study guide ↗</a></aside>
+  <main id="main">
+    <section class="hero" id="top">
+      <p class="eyebrow">ResolveAI / implementation field guide</p>
+      <h1>How an incident<br>becomes a <span>diagnosis.</span></h1>
+      <p class="hero-lede">Understand the project from input to output: the facts it accepts, the documents it retrieves, the functions it calls, and the checks a model proposal must pass.</p>
+      <div class="hero-meta" aria-label="Technology summary">
+        <span class="pill">Python 3.13</span>
+        <span class="pill">FastAPI</span>
+        <span class="pill">Pydantic</span>
+        <span class="pill">PostgreSQL 17 + pgvector</span>
+        <span class="pill">Next.js 16</span>
+        <span class="pill">React 19</span>
+        <span class="pill">Synthetic incident study</span>
+      </div>
+      <div class="hero-note"><span class="route-label">The shared path</span><p><code>Incident + Evidence</code> → retrieve references → propose a hypothesis → verify citations → <code>InvestigationResult</code></p></div><div class="reading-options"><a href="#principles">Start with the principles ↓</a><a href="#worked-example">Follow INC-001 ↓</a><a href="#functions">Find a function ↓</a></div><p class="source-line">For a developer or reviewer learning the repository. Read in order for the complete explanation, or use the contents to inspect one boundary. The walkthrough uses selected fields; pattern snippets omit surrounding code. Open the linked source for executable implementations.</p>
+    </section>
+
+    <section class="study-section" id="shape">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">The shape</p>
+          <h2>Small on purpose</h2>
+        </div>
+        <p class="section-intro">This is a portfolio system with clear exclusions. It has no accounts, autonomous remediation, background workers, general tool execution, or claim of production reliability.</p>
+      </div>
+      <div class="verdict-grid">
+        <article class="verdict">
+          <span class="number">BOUNDARY 01</span>
+          <h3>One core workflow</h3>
+          <p>Prepared fixtures and unseen runtime JSON both reach <code>investigate_evidence()</code>. That is the architectural center.</p>
+        </article>
+        <article class="verdict">
+          <span class="number">BOUNDARY 02</span>
+          <h3>Evidence is privileged</h3>
+          <p>Runbooks can guide reasoning. Only collected Evidence IDs can support the returned diagnosis.</p>
+        </article>
+        <article class="verdict">
+          <span class="number">BOUNDARY 03</span>
+          <h3>Failure is not uncertainty</h3>
+          <p>A model abstention becomes inconclusive. A database or provider failure stays a system failure with its own category.</p>
+        </article>
+      </div>
+    </section>
+
+<section class="study-section" id="principles"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>The ideas behind the implementation</h2></div><p class="section-intro">Start here if incident investigation, retrieval, or typed Python is new to you.</p></div>
+<div class="prose"><h3>What problem does this solve?</h3><p>An incident report describes an effect, such as failing payment requests. It rarely explains the cause. ResolveAI brings observations and operational guidance together, asks for a possible cause, and returns the observations used to support that explanation. The remediation is a recommendation for a person to review. The application never executes it.</p>
+<h3>Retrieval-augmented generation, in concrete terms</h3><p>Retrieval-augmented generation means selecting useful documents before asking a language model to answer. Here, the application turns the incident report and Evidence summaries into a search query, retrieves reference text, and includes that text in the reasoning request. This supplies context at request time. It does not train or update the language model.</p><p>The guided reasoner is an exception worth understanding. It still runs retrieval, but its Python rules deliberately ignore the retrieved text. That makes it useful for checking the surrounding workflow. It does not demonstrate that retrieval improves reasoning. Separate retrieval-dependent evaluations address that question.</p>
+<h3>Validation happens at several different boundaries</h3><p>Pydantic checks incoming fields and relationships between them. The provider adapter checks whether a structured decision is complete. The shared workflow checks whether citations name collected Evidence. The browser checks the received JSON before rendering. Each check answers a different question, so none makes the others redundant.</p>
+<h3>Types carry meaning, but have limits</h3><p><code>Evidence</code> means an observation supplied to this investigation. <code>RetrievedRunbook</code> means reference knowledge found by search. <code>Hypothesis</code> means a proposal awaiting citation checks. These names let a reader follow what each value is allowed to do. Runtime Evidence is caller-supplied, however. Schema validation cannot prove that an observation happened in the real world.</p>
+<h3>A small synchronous workflow</h3><p>The Python call stack expresses the execution order. One function returns before the next begins. The reasoner is a callable passed as an argument, which lets deterministic rules and live adapters share the same workflow. There is no autonomous planning loop, tool dispatch, queue, or retry orchestration.</p></div></section>
+<section class="study-section" id="domain"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>The data model, field by field</h2></div><p class="section-intro">Read these shapes as a sequence of transformations. Public input models apply stricter bounds before creating the shared domain objects.</p></div><div class="table-scroll" tabindex="0" role="region" aria-label="Type / source reference table"><table><thead><tr><th scope="col">Type / source</th><th scope="col">Fields and meaning</th><th scope="col">Used by</th></tr></thead><tbody><tr><td><code>Incident</code></td><td><code>id</code>, <code>title</code>, <code>description</code>, <code>service</code>, <code>started_at</code>. Identifies the reported problem and its start time.</td><td>Collectors, query builder, reasoner.</td></tr><tr><td><code>IncidentContext</code></td><td>One Incident plus raw <code>logs</code> and <code>deployments</code>. A deployment contains a list of setting changes.</td><td>Prepared path only, before normalization.</td></tr><tr><td><code>Evidence</code></td><td><code>id</code>, <code>source</code>, <code>kind</code>, <code>observed_at</code>, <code>summary</code>, <code>details</code>. Source is log or deployment. Kind identifies the fact; details preserve structured string or integer values.</td><td>Reasoner input; the only ID collection accepted by the citation verifier.</td></tr><tr><td><code>RetrievedRunbook</code></td><td><code>id</code>, <code>title</code>, <code>service</code>, <code>content</code>, <code>similarity_score</code>. A complete stored runbook and its query relevance.</td><td>Reference input and a separate result list.</td></tr><tr><td><code>KnowledgeDocument</code> → <code>RetrievedKnowledgeDocument</code></td><td><code>id</code>, <code>title</code>, <code>content_type</code>, <code>content</code>. Retrieval adds <code>similarity_score</code>.</td><td>Optional runtime reference input scoped to one request.</td></tr><tr><td><code>Hypothesis</code></td><td><code>root_cause_label</code>, <code>probable_root_cause</code>, nonempty <code>cited_evidence_ids</code>, confidence from 0 to 1, and <code>recommended_remediation</code>.</td><td>Unverified output from the reasoner callable.</td></tr><tr><td><code>Diagnosis</code></td><td>Carries the proposed cause, confidence, and recommendation. Uses <code>supporting_evidence_ids</code> after membership verification. The application sets <code>human_approval_required=True</code>.</td><td>Nested inside a diagnosed result.</td></tr><tr><td><code>InvestigationResult</code></td><td>Incident ID, status, nullable diagnosis, all Evidence, separate ordered runbook and runtime-document lists, and provider/model metadata.</td><td>HTTP response and saved snapshot.</td></tr><tr><td><code>InvestigationRunSnapshot</code></td><td>Versioned bundle, references, result or failure code, provider metadata, execution settings, timestamps, and duration.</td><td>One explicit, immutable saved attempt.</td></tr></tbody></table></div><div class="note"><strong>Two different label contracts.</strong> The frozen benchmark has six <code>RootCauseLabel</code> enum values. Runtime <code>RootCauseName</code> accepts 1–80 characters in lowercase snake_case using letters and digits. A runtime label is a short description, not a reliable semantic comparison key.</div><p class="source-line">Source: <a href="../resolve_ai/models.py">models.py</a> and <a href="../resolve_ai/investigation_runs.py">investigation_runs.py</a>.</p></section>
+    <section class="study-section" id="architecture">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Architecture</p>
+          <h2>Follow responsibility, not imports</h2>
+        </div>
+        <p class="section-intro">In the complete topology, browser API requests pass through Next.js. Next.js rewrites same-origin <code>/api</code> requests, while FastAPI keeps HTTP translation outside the investigation logic.</p>
+      </div>
+
+      <div class="topology" aria-label="Deployment topology">
+        <div class="topology-node"><code>browser</code><span>:3000</span></div>
+        <span class="arrow" aria-hidden="true">→</span>
+        <div class="topology-node"><code>Next.js</code><span>/api rewrite</span></div>
+        <span class="arrow" aria-hidden="true">→</span>
+        <div class="topology-node"><code>FastAPI</code><span>:8000</span></div>
+        <span class="arrow" aria-hidden="true">→</span>
+        <div class="topology-node"><code>PostgreSQL</code><span>:5432</span></div>
+      </div>
+
+      <div class="explorer">
+        <div class="layer-list" role="tablist" aria-label="Architecture layers">
+          <button class="layer-button" role="tab" aria-selected="true" aria-controls="layer-input" id="tab-input" data-layer="input" type="button"><span class="index">01</span><span>Input adapters<small>Fixtures or bounded JSON</small></span></button>
+          <button class="layer-button" role="tab" aria-selected="false" aria-controls="layer-core" id="tab-core" data-layer="core" type="button"><span class="index">02</span><span>Domain workflow<small>The shared sequence</small></span></button>
+          <button class="layer-button" role="tab" aria-selected="false" aria-controls="layer-retrieval" id="tab-retrieval" data-layer="retrieval" type="button"><span class="index">03</span><span>Retrieval<small>Frozen and scoped knowledge</small></span></button>
+          <button class="layer-button" role="tab" aria-selected="false" aria-controls="layer-reasoner" id="tab-reasoner" data-layer="reasoner" type="button"><span class="index">04</span><span>Reasoner<small>Fake or configured live model</small></span></button>
+          <button class="layer-button" role="tab" aria-selected="false" aria-controls="layer-runtime" id="tab-runtime" data-layer="runtime" type="button"><span class="index">05</span><span>Runtime wrapper<small>Cleanup and provenance</small></span></button>
+          <button class="layer-button" role="tab" aria-selected="false" aria-controls="layer-http" id="tab-http" data-layer="http" type="button"><span class="index">06</span><span>HTTP and browser<small>Transport and presentation</small></span></button>
+        </div>
+        <div class="layer-detail">
+          <article class="layer-panel" id="layer-input" role="tabpanel" aria-labelledby="tab-input">
+            <p class="kicker">Adapt, then forget the source</p>
+            <h3>Both paths produce <code>Incident</code> and <code>Evidence</code></h3>
+            <p>The guided path converts logs and deployments. The runtime path validates a versioned public bundle and converts it with <code>to_domain()</code>. The core does not need to know which path the data took.</p>
+            <div class="file-list"><span class="file-ref">fixtures.py</span><span class="file-ref">runtime_input.py</span><span class="file-ref">models.py</span></div>
+            <p class="boundary"><b>Boundary gained.</b> Transport rules such as size limits, unknown-field rejection, and timezone requirements do not leak into the investigation function.</p>
+          </article>
+          <article class="layer-panel" id="layer-core" role="tabpanel" aria-labelledby="tab-core" hidden>
+            <p class="kicker">The architectural center</p>
+            <h3><code>investigate_evidence()</code> owns the sequence</h3>
+            <p>It deep-copies caller data, builds a deterministic query, retrieves Top-3 references, calls an injected reasoner, handles expected abstention, verifies citations, and constructs the result.</p>
+            <div class="file-list"><span class="file-ref">investigation.py:65</span><span class="file-ref">reasoning.py</span><span class="file-ref">models.py</span></div>
+            <p class="boundary"><b>Why plain Python wins here.</b> There are no tool loops, retries, checkpoints, or branching plans. A workflow framework would hide a short function behind extra concepts.</p>
+          </article>
+          <article class="layer-panel" id="layer-retrieval" role="tabpanel" aria-labelledby="tab-retrieval" hidden>
+            <p class="kicker">Reference supply</p>
+            <h3>Two tables prevent accidental corpus mixing</h3>
+            <p>Nine benchmark runbooks live in <code>runbooks</code>. User documents live in <code>runtime_knowledge_documents</code> under a server-generated UUID. Both use 384-dimensional embeddings and cosine distance, but only the runtime query accepts a scope.</p>
+            <div class="file-list"><span class="file-ref">retrieval.py</span><span class="file-ref">embeddings.py</span><span class="file-ref">database/init.sql</span></div>
+            <p class="boundary"><b>Boundary gained.</b> Runtime text cannot silently contaminate frozen evaluation data. Expired scoped rows are excluded even if immediate deletion fails.</p>
+          </article>
+          <article class="layer-panel" id="layer-reasoner" role="tabpanel" aria-labelledby="tab-reasoner" hidden>
+            <p class="kicker">A replaceable callable</p>
+            <h3>The model proposes. Domain code promotes.</h3>
+            <p>The deterministic fake recognizes two synthetic causes. Runtime requests use one server-selected GPT-5.6 Luna provider. Both satisfy the same callable boundary and return an unverified <code>Hypothesis</code>.</p>
+            <div class="file-list"><span class="file-ref">fake_model.py</span><span class="file-ref">openai_model.py</span><span class="file-ref">runtime_reasoner.py</span></div>
+            <p class="boundary"><b>Boundary gained.</b> Tests can replace inference without mocking HTTP internals. Provider selection remains configuration, not user input.</p>
+          </article>
+          <article class="layer-panel" id="layer-runtime" role="tabpanel" aria-labelledby="tab-runtime" hidden>
+            <p class="kicker">Transient by default</p>
+            <h3>Runtime execution adds a scope and always attempts cleanup</h3>
+            <p>The wrapper captures timings and retrieved references, maps known failures into five stable codes, and deletes request-specific knowledge in <code>finally</code>. The saved endpoint can persist either a successful attempt or a categorized failure.</p>
+            <div class="file-list"><span class="file-ref">runtime_investigation.py</span><span class="file-ref">investigation_runs.py</span></div>
+            <p class="boundary"><b>Boundary gained.</b> The transient and saved endpoints cannot drift into two different investigation implementations.</p>
+          </article>
+          <article class="layer-panel" id="layer-http" role="tabpanel" aria-labelledby="tab-http" hidden>
+            <p class="kicker">Translate at the edge</p>
+            <h3>FastAPI maps errors; the browser distrusts JSON</h3>
+            <p>Routes turn domain outcomes into HTTP responses. TypeScript interfaces help at compile time, then explicit guards validate the actual network payload before React accepts it.</p>
+            <div class="file-list"><span class="file-ref">api.py</span><span class="file-ref">web/lib/api.ts</span><span class="file-ref">web/components/</span></div>
+            <p class="boundary"><b>Boundary gained.</b> HTTP status codes stay out of the domain, and malformed responses do not flow into UI state under a type assertion.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="study-section" id="flow">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Execution trace</p>
+          <h2>Walk one request</h2>
+        </div>
+        <p class="section-intro">Switch paths to see where they differ. Steps 3 through 6 are the same shared domain operation.</p>
+      </div>
+      <div class="flow-toolbar">
+        <div class="segmented" role="tablist" aria-label="Request path">
+          <button id="guided-trace-tab" role="tab" aria-controls="guided-trace" aria-selected="true" data-trace-select="guided" type="button">Prepared incident</button>
+          <button id="runtime-trace-tab" role="tab" aria-controls="runtime-trace" aria-selected="false" data-trace-select="runtime" type="button">Runtime bundle</button>
+        </div>
+        <p class="flow-hint">Trace the owner at the right edge of each step.</p>
+      </div>
+
+      <div class="trace" id="guided-trace" role="tabpanel" aria-labelledby="guided-trace-tab" data-trace="guided">
+        <article class="trace-card"><span class="trace-step">01</span><div class="trace-copy"><h3>Select <code>INC-001</code></h3><p>The route loads a copied <code>IncidentContext</code> containing the incident, logs, and deployments.</p></div><span class="trace-owner">api.py → fixtures.py</span></article>
+        <article class="trace-card"><span class="trace-step">02</span><div class="trace-copy"><h3>Normalize records</h3><p>A database timeout log stays <code>LOG-001</code>. A pool-size change becomes a precise ID such as <code>DEP-001:database_connection_pool_size</code>.</p></div><span class="trace-owner">investigation.py:48</span></article>
+        <article class="trace-card"><span class="trace-step">03</span><div class="trace-copy"><h3>Build one deterministic query</h3><p>The incident title, description, and ordered Evidence summaries become plain text. The same input always produces the same query.</p></div><span class="trace-owner">investigation.py:214</span></article>
+        <article class="trace-card"><span class="trace-step">04</span><div class="trace-copy"><h3>Retrieve Top-3 runbooks</h3><p>The query embedding is compared in PostgreSQL. Similarity ranks reference knowledge; it does not prove causation.</p></div><span class="trace-owner">retrieval.py:196</span></article>
+        <article class="trace-card"><span class="trace-step">05</span><div class="trace-copy"><h3>Generate a hypothesis</h3><p>The deterministic fake finds the timeout plus the latest pool reduction. Unknown patterns raise <code>InsufficientEvidenceError</code>.</p></div><span class="trace-owner">fake_model.py:28</span></article>
+        <article class="trace-card"><span class="trace-step">06</span><div class="trace-copy"><h3>Verify cited Evidence IDs</h3><p>The proposal becomes a diagnosis only when every citation exists in the collected Evidence map.</p></div><span class="trace-owner">investigation.py:317</span></article>
+        <article class="trace-card"><span class="trace-step">07</span><div class="trace-copy"><h3>Validate JSON again in the browser</h3><p>The API response model validates on the server. The browser checks the received payload at runtime before rendering it.</p></div><span class="trace-owner">web/lib/api.ts</span></article>
+      </div>
+
+      <div class="trace" id="runtime-trace" role="tabpanel" aria-labelledby="runtime-trace-tab" data-trace="runtime" hidden>
+        <article class="trace-card"><span class="trace-step">01</span><div class="trace-copy"><h3>Validate schema version 1</h3><p>Pydantic rejects unknown fields, ambiguous timestamps, duplicate IDs, more than 50 Evidence items, and oversized documents.</p></div><span class="trace-owner">runtime_input.py</span></article>
+        <article class="trace-card"><span class="trace-step">02</span><div class="trace-copy"><h3>Store optional documents in one UUID scope</h3><p>Each document is embedded before an atomic insert. Its 15-minute expiry starts before reasoning.</p></div><span class="trace-owner">runtime_investigation.py:126</span></article>
+        <article class="trace-card"><span class="trace-step">03</span><div class="trace-copy"><h3>Enter the shared workflow</h3><p><code>to_domain()</code> supplies ordinary <code>Incident</code> and <code>Evidence</code> objects. Nothing runtime-specific reaches the reasoner contract except optional references.</p></div><span class="trace-owner">investigation.py:65</span></article>
+        <article class="trace-card"><span class="trace-step">04</span><div class="trace-copy"><h3>Retrieve two separate Top-3 lists</h3><p>Frozen runbooks and scoped user documents are queried separately, then combined only for the reasoner call.</p></div><span class="trace-owner">retrieval.py</span></article>
+        <article class="trace-card"><span class="trace-step">05</span><div class="trace-copy"><h3>Ask one configured live reasoner</h3><p>The server chooses OpenAI or OpenRouter. The caller supplies neither a model nor a key. The structured decision can diagnose or abstain.</p></div><span class="trace-owner">runtime_reasoner.py</span></article>
+        <article class="trace-card"><span class="trace-step">06</span><div class="trace-copy"><h3>Verify citations and return a domain result</h3><p>A document ID is not an Evidence ID. Citing it raises <code>UnknownEvidenceError</code> and becomes <code>invalid_citations</code>.</p></div><span class="trace-owner">investigation.py:317</span></article>
+        <article class="trace-card"><span class="trace-step">07</span><div class="trace-copy"><h3>Attempt cleanup in <code>finally</code></h3><p>If deletion fails, expiry blocks later retrieval and a future ingestion purges stale rows. The original outcome is not concealed.</p></div><span class="trace-owner">runtime_investigation.py:187</span></article>
+        <article class="trace-card"><span class="trace-step">08</span><div class="trace-copy"><h3>Return transiently or save one snapshot</h3><p>Saving records input, ordered references, reasoner settings, timings, and either a result or a stable failure code for one hour.</p></div><span class="trace-owner">investigation_runs.py</span></article>
+      </div>
+    </section>
+
+<section class="study-section" id="worked-example"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>Follow the actual values in INC-001</h2></div><p class="section-intro">This is the prepared payment-service fixture. The times, IDs, and pool sizes below come from fixtures.py.</p></div>
+<div class="timeline-facts"><div><span>10:31 UTC</span><strong>Pool size 20 → 5</strong><p>Deployment DEP-001 changes database_connection_pool_size.</p></div><div><span>10:37 UTC</span><strong>Incident begins</strong><p>Payment requests start failing after the deployment.</p></div><div><span>10:37:12 UTC</span><strong>Connection timeout</strong><p>LOG-001 records a failure to acquire a database connection.</p></div></div>
+<h3>Collection preserves facts and creates precise citation IDs</h3><p><code>inspect_logs()</code> keeps logs from the affected service at or after the incident start. Both LOG-001 and the HTTP 500 record LOG-002 survive. <code>inspect_deployments()</code> keeps deployments from that service at or before the incident start and creates one Evidence item per setting change.</p><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code># Selected normalized fields; abbreviated for study.
+Evidence(
+    id=&quot;DEP-001:database_connection_pool_size&quot;,
+    source=&quot;deployment&quot;,
+    kind=&quot;configuration_change&quot;,
+    observed_at=&quot;2026-08-08T10:31:00Z&quot;,
+    details={
+        &quot;deployment_id&quot;: &quot;DEP-001&quot;,
+        &quot;setting&quot;: &quot;database_connection_pool_size&quot;,
+        &quot;previous_value&quot;: 20,
+        &quot;new_value&quot;: 5,
+    },
+)</code></pre></div><p>The resulting list contains logs first, then deployment changes. It is not sorted into chronological order. The fake explicitly finds the latest usable pool change by timestamp; it does not assume the final list item is the latest deployment.</p>
+<h3>The retrieval query is reproducible</h3><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code>Incident: Payments API returning HTTP 500 responses
+Description: Payment requests began failing after the morning deployment.
+Observed evidence:
+- Timed out while acquiring a database connection.
+- POST /payments completed with HTTP 500.
+- Deployment DEP-001 changed database_connection_pool_size from 20 to 5.</code></pre></div><p><code>build_runbook_query()</code> uses the title, description, and ordered summaries. It does not independently append the service, timestamps, or structured details. The reasoner later receives the full incident and Evidence objects, so its input contains more information than the retrieval query.</p>
+<h3>The fake applies a rule; the application verifies its references</h3><p><code>generate_hypothesis()</code> finds a connection timeout and checks that the latest pool change reduced capacity. It proposes <code>connection_pool_exhaustion</code>, cites the setting change and LOG-001, assigns confidence 0.9, and recommends restoring the pool to 20. LOG-002 remains in the result even though it is not a supporting citation.</p><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code># Selected output fields; retrieved references omitted here.
+status = &quot;diagnosed&quot;
+diagnosis.root_cause_label = &quot;connection_pool_exhaustion&quot;
+diagnosis.supporting_evidence_ids = [
+    &quot;DEP-001:database_connection_pool_size&quot;,
+    &quot;LOG-001&quot;,
+]
+diagnosis.human_approval_required = True</code></pre></div><div class="note"><strong>Try the counterexample mentally.</strong> If a later pre-incident deployment restores the pool, the fake must not diagnose an old reduction. If only HTTP failures remain, the fake abstains. INC-003 demonstrates the latter case and returns <code>status="inconclusive"</code> with <code>diagnosis=null</code>.</div><p class="source-line">Source: <a href="../resolve_ai/fixtures.py">fixtures.py</a>, <a href="../resolve_ai/fake_model.py">fake_model.py</a>, <a href="../tests/test_investigation.py">test_investigation.py</a>.</p></section>
+<section class="study-section" id="retrieval-details"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>How text becomes ranked references</h2></div><p class="section-intro">The embedding model and the reasoning model do different jobs. Embeddings produce numbers for search; the reasoner proposes an explanation.</p></div>
+<ol class="explain-steps"><li><h3>Prepare a whole document</h3><p><code>build_document_embedding_text()</code> joins the title and content as <code>Title: …
+
+Content: …</code>. Each document is one retrieval unit. There is no chunk splitter.</p></li><li><h3>Generate a 384-number representation</h3><p>FastEmbed runs <code>BAAI/bge-small-en-v1.5</code> locally. <code>query_embed()</code> embeds search text and <code>passage_embed()</code> embeds documents. <code>_ordinary_python_vector()</code> converts model arrays into Python floats. <code>@cache</code> loads the model once per process; it does not cache every query result.</p></li><li><h3>Send a parameterized vector to PostgreSQL</h3><p><code>_format_vector_for_postgres()</code> requires 384 finite values and formats them for <code>vector(384)</code>. Psycopg passes the value as a SQL parameter. Runtime storage generates and validates every document vector before inserting any rows.</p></li><li><h3>Rank by cosine distance</h3><p>pgvector's <code>&lt;=&gt;</code> operator computes cosine distance. Smaller distance ranks earlier. The API returns <code>1 - distance</code> as similarity. IDs break equal-distance ties consistently. This is a relevance score, not the probability that a cause is correct.</p></li></ol><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code>-- Core of the runtime-document query; abbreviated.
+WHERE runtime_knowledge_documents.scope_id = %s
+  AND runtime_knowledge_documents.expires_at &gt; now()
+ORDER BY
+  runtime_knowledge_documents.embedding &lt;=&gt; query_embedding.value ASC,
+  runtime_knowledge_documents.document_id ASC
+LIMIT %s</code></pre></div><h3>Top-3 applies to each collection separately</h3><p>The workflow first retrieves up to three frozen runbooks. If a runtime scope exists, it separately retrieves up to three documents from that scope. It concatenates runbooks first, then runtime documents for the reasoner. There is no global ranking of all six references, reranker, minimum similarity threshold, or service filter in the semantic SQL. The same query is embedded separately by the two search functions.</p>
+<h3>Storage and baseline search</h3><p><code>runbooks</code> contains nine frozen records. The setup command embeds rows whose embedding is NULL; semantic search excludes those NULL rows until setup completes. The lexical baseline uses a generated English <code>tsvector</code>, weighted title/content terms, <code>websearch_to_tsquery()</code>, and <code>ts_rank()</code>. Its GIN index supports text search. The schema defines no approximate vector index.</p><p>The runtime table uses the composite primary key <code>scope_id, document_id</code>. Two requests can reuse a document ID because their server-generated scopes differ. Expiry and scope restrictions live in the SQL predicate, so out-of-scope documents never enter that query's result list.</p><p class="source-line">Source: <a href="../resolve_ai/embeddings.py">embeddings.py</a>, <a href="../resolve_ai/retrieval.py">retrieval.py</a>, <a href="../database/init.sql">database/init.sql</a>.</p></section>
+<section class="study-section" id="runtime-contract"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>The runtime input contract</h2></div><p class="section-intro">Runtime input is already normalized Evidence. It does not pass through the prepared log and deployment collectors.</p></div><div class="table-scroll" tabindex="0" role="region" aria-label="Boundary reference table"><table><thead><tr><th scope="col">Boundary</th><th scope="col">Accepted values</th><th scope="col">Reason</th></tr></thead><tbody><tr><td>Bundle</td><td><code>schema_version: 1</code>; one incident; 1–50 Evidence items; 0–5 documents. Unknown fields are forbidden on public models.</td><td>Makes input bounded and rejects misspelled or unsupported fields.</td></tr><tr><td>Identifiers</td><td>1–128 trimmed characters; begin with a letter or digit, then letters, digits, dot, underscore, colon, slash, or hyphen.</td><td>Keeps stable IDs available for citation and display.</td></tr><tr><td>Uniqueness</td><td>Evidence IDs are unique; document IDs are unique and disjoint from Evidence IDs.</td><td>Prevents an ambiguous citation between observations and runtime references.</td></tr><tr><td>Incident text</td><td>Title up to 160 characters; description up to 2,000; service up to 100. Required text is trimmed and nonempty.</td><td>Bounds the report without tying it to prepared incident IDs.</td></tr><tr><td>Evidence</td><td>Existing source and kind enums; summary up to 2,000 characters; at most 20 detail entries.</td><td>Runtime causes are open, but observation categories remain a bounded schema.</td></tr><tr><td>Details</td><td>Keys up to 64 characters; values are nonempty text up to 500 characters or strict integers.</td><td>Rejects nested arbitrary objects and boolean-as-integer coercion.</td></tr><tr><td>Time</td><td>Incident start and observation timestamps require an explicit UTC offset.</td><td>Avoids ambiguous timezone interpretation at the HTTP boundary.</td></tr><tr><td>Documents</td><td>Plain text or Markdown; nonblank; no NUL; up to 8,000 characters each and 20,000 total. Meaningful whitespace is preserved.</td><td>Provides small, explicit reference inputs compatible with PostgreSQL text.</td></tr></tbody></table></div><h3>A complete minimal bundle</h3><p>This valid example records an HTTP failure without a known cause. It illustrates the transport contract, not a guaranteed live-model outcome.</p><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code>{
+  &quot;schema_version&quot;: 1,
+  &quot;incident&quot;: {
+    &quot;id&quot;: &quot;RUNTIME-001&quot;,
+    &quot;title&quot;: &quot;Payment requests failing&quot;,
+    &quot;description&quot;: &quot;HTTP 500 responses began after 10:37 UTC.&quot;,
+    &quot;service&quot;: &quot;payment-service&quot;,
+    &quot;started_at&quot;: &quot;2026-08-08T10:37:00Z&quot;
+  },
+  &quot;evidence&quot;: [{
+    &quot;id&quot;: &quot;OBS-001&quot;,
+    &quot;source&quot;: &quot;log&quot;,
+    &quot;kind&quot;: &quot;http_request_failed&quot;,
+    &quot;observed_at&quot;: &quot;2026-08-08T10:37:13Z&quot;,
+    &quot;summary&quot;: &quot;POST /payments completed with HTTP 500.&quot;,
+    &quot;details&quot;: {}
+  }],
+  &quot;knowledge_documents&quot;: []
+}</code></pre></div><p><code>to_domain()</code> creates new Incident, Evidence, and KnowledgeDocument objects while preserving input order. It does not apply prepared collector time windows, prove source authenticity, or infer missing facts. Input-validation failures reach the caller as HTTP 422 before runtime execution.</p><p class="source-line">Source: <a href="../resolve_ai/runtime_input.py">runtime_input.py</a>.</p></section>
+<section class="study-section" id="provider-details"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>The reasoner boundary</h2></div><p class="section-intro">One callable accepts an Incident, an Evidence list, and a list of retrieved references. It returns a Hypothesis or raises an exception.</p></div>
+<h3>Dependency injection without a framework</h3><p><code>HypothesisGenerator</code> describes the callable shape. <code>investigate_evidence()</code> accepts that callable as an argument. The default is <code>generate_fake_hypothesis()</code>, which adapts the evidence-only rules to the shared three-argument contract. Runtime configuration provides a live callable and safe provider/model metadata in <code>ConfiguredRuntimeReasoner</code>.</p>
+<h3>Configuration selects the transport</h3><p><code>get_runtime_reasoner()</code> reads <code>RESOLVEAI_RUNTIME_PROVIDER</code>, validates openai or openrouter, and requires the matching environment key. The configured model IDs are <code>gpt-5.6-luna</code> and <code>openai/gpt-5.6-luna</code>. These are repository settings. There is no caller model selector or automatic fallback.</p>
+<h3>Build the model input, parse its decision</h3><p><code>build_openai_reasoning_input()</code> serializes the complete incident, Evidence, and runbooks to JSON. It adds <code>retrieved_knowledge_documents</code> only when nonempty to preserve the frozen benchmark input shape. The runtime system instructions identify documents as untrusted content and prohibit treating them as instructions or citing them as observations.</p><p><code>_generate_hypothesis()</code> calls <code>client.responses.parse()</code> with the selected decision schema, medium reasoning effort, and a 4,000 output-token limit. Client construction sets a 30-second timeout and zero SDK retries. That timeout is for the provider call; embedding, database operations, cleanup, and snapshot storage add their own time to the HTTP request.</p><div class="table-scroll" tabindex="0" role="region" aria-label="Decision reference table"><table><thead><tr><th scope="col">Decision</th><th scope="col">Required relationship</th><th scope="col">Adapter result</th></tr></thead><tbody><tr><td>diagnosed</td><td>Cause label, explanation, confidence, and remediation are present; citation list is nonempty. Confidence is 0–1.</td><td>Creates an unverified <code>Hypothesis</code>.</td></tr><tr><td>inconclusive</td><td>All diagnosis fields are null and the citation list is empty.</td><td>Raises <code>InsufficientEvidenceError</code>, which the shared workflow handles normally.</td></tr><tr><td>Malformed or absent parsed output</td><td>Fields contradict the status, fail validation, or no parsed decision exists.</td><td>Raises a validation or runtime error, categorized as invalid reasoner output in runtime execution.</td></tr></tbody></table></div><div class="note"><strong>What this boundary cannot establish.</strong> Structured parsing checks shape and coherence. Citation verification checks ID membership. Neither proves that a cited observation entails the explanation, calibrates confidence, or guarantees that prompt injection cannot influence the prose. A person still reviews the proposed cause and action.</div><p class="source-line">Source: <a href="../resolve_ai/reasoning.py">reasoning.py</a>, <a href="../resolve_ai/openai_model.py">openai_model.py</a>, <a href="../resolve_ai/openrouter_model.py">openrouter_model.py</a>, <a href="../resolve_ai/runtime_reasoner.py">runtime_reasoner.py</a>.</p></section>
+    <section class="study-section" id="boundaries">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Trust model</p>
+          <h2>Three types, three levels of authority</h2>
+        </div>
+        <p class="section-intro">The project gets safer because it models these ideas separately. Collapsing them into a generic document type would erase the most important rule.</p>
+      </div>
+      <div class="data-grid">
+        <article class="data-card fact">
+          <span class="type">Evidence</span>
+          <h3>Observed incident facts</h3>
+          <p>Logs, deployments, and normalized runtime observations. Each item has a stable ID and may support a diagnosis.</p>
+          <p class="rule"><b>Authority:</b> citable. The verifier accepts only IDs found in this collection.</p>
+        </article>
+        <article class="data-card reference">
+          <span class="type">Retrieved reference knowledge</span>
+          <h3>Helpful context, not proof</h3>
+          <p>Frozen runbooks and request-scoped documents. Their score measures embedding similarity to the query.</p>
+          <p class="rule"><b>Authority:</b> informative. A high score is neither confidence nor causal support.</p>
+        </article>
+        <article class="data-card proposal">
+          <span class="type">Hypothesis</span>
+          <h3>Unverified model output</h3>
+          <p>A root cause, confidence, remediation, and proposed Evidence citations. It is not yet a diagnosis.</p>
+          <p class="rule"><b>Authority:</b> provisional. Application code must promote it after citation checks.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="study-section" id="patterns">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Code clinic</p>
+          <h2>Patterns and the boundaries they protect</h2>
+        </div>
+        <p class="section-intro">These excerpts are small because the lesson should survive outside this repository. Use the source references to read the surrounding code.</p>
+      </div>
+
+      <div class="pattern-stack">
+        <article class="pattern">
+          <div class="pattern-copy">
+            <span class="pattern-number">PATTERN 01</span>
+            <h3>Converge adapters on one typed function</h3>
+            <p>The fixture path does its source-specific work, then hands off. Runtime input converts to the same domain models.</p>
+            <p class="lesson"><b>Why it works.</b> New input paths do not require another investigation engine. The core accepts data, dependencies, and an optional knowledge scope.</p>
+            <a class="source-link" href="../resolve_ai/investigation.py">resolve_ai/investigation.py:48</a>
+          </div>
+          <div class="code-wrap">
+            <div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div>
+            <pre><code><span class="kw">def</span> <span class="fn">investigate_incident</span>(context, database_url, ...):
+    evidence = <span class="fn">inspect_logs</span>(context) + <span class="fn">inspect_deployments</span>(context)
+    <span class="kw">return</span> <span class="fn">investigate_evidence</span>(
+        incident=context.incident,
+        evidence=evidence,
+        database_url=database_url,
+        hypothesis_generator=hypothesis_generator,
+        reasoner=reasoner,
+    )</code></pre>
+          </div>
+        </article>
+
+        <article class="pattern">
+          <div class="pattern-copy">
+            <span class="pattern-number">PATTERN 02</span>
+            <h3>Validate model claims against application-owned data</h3>
+            <p>The model cannot promote its own answer. A dictionary turns citation checking into a direct membership test.</p>
+            <p class="lesson"><b>What it does not prove.</b> The cited facts may still be weak evidence. This guard blocks invented IDs, not bad causal logic.</p>
+            <a class="source-link" href="../resolve_ai/investigation.py">resolve_ai/investigation.py:317</a>
+          </div>
+          <div class="code-wrap">
+            <div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div>
+            <pre><code>evidence_by_id = {item.id: item <span class="kw">for</span> item <span class="kw">in</span> evidence}
+missing_ids = [
+    evidence_id
+    <span class="kw">for</span> evidence_id <span class="kw">in</span> hypothesis.cited_evidence_ids
+    <span class="kw">if</span> evidence_id <span class="kw">not in</span> evidence_by_id
+]
+
+<span class="kw">if</span> missing_ids:
+    <span class="kw">raise</span> <span class="ty">UnknownEvidenceError</span>(...)</code></pre>
+          </div>
+        </article>
+
+        <article class="pattern">
+          <div class="pattern-copy">
+            <span class="pattern-number">PATTERN 03</span>
+            <h3>Make output states coherent in the schema</h3>
+            <p>A reasoner decision cannot be half-diagnosed. Inconclusive means empty diagnosis fields and no citations. Diagnosed means every field and at least one citation.</p>
+            <p class="lesson"><b>Why this beats cleanup code.</b> Invalid combinations fail at the model boundary. Downstream code receives one of two complete states.</p>
+            <a class="source-link" href="../resolve_ai/openai_model.py">resolve_ai/openai_model.py:64</a>
+          </div>
+          <div class="code-wrap">
+            <div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div>
+            <pre><code><span class="kw">if</span> self.status == <span class="ty">InvestigationStatus</span>.INCONCLUSIVE:
+    <span class="kw">if</span> <span class="fn">any</span>(value <span class="kw">is not None</span> <span class="kw">for</span> value <span class="kw">in</span> diagnosis_values):
+        <span class="kw">raise</span> <span class="ty">ValueError</span>(...)
+    <span class="kw">if</span> self.cited_evidence_ids:
+        <span class="kw">raise</span> <span class="ty">ValueError</span>(...)
+    <span class="kw">return</span> self
+
+<span class="kw">if</span> <span class="fn">any</span>(value <span class="kw">is None</span> <span class="kw">for</span> value <span class="kw">in</span> diagnosis_values):
+    <span class="kw">raise</span> <span class="ty">ValueError</span>(...)</code></pre>
+          </div>
+        </article>
+
+        <article class="pattern">
+          <div class="pattern-copy">
+            <span class="pattern-number">PATTERN 04</span>
+            <h3>Clean request-scoped data without masking the result</h3>
+            <p>The wrapper owns temporary storage, so it also owns deletion. Cleanup runs for success, abstention, known failure, and unexpected failure.</p>
+            <p class="lesson"><b>The tradeoff.</b> Cleanup is best effort. A 15-minute expiry and later purge limit exposure, but this is not a hard deletion guarantee.</p>
+            <a class="source-link" href="../resolve_ai/runtime_investigation.py">resolve_ai/runtime_investigation.py:187</a>
+          </div>
+          <div class="code-wrap">
+            <div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div>
+            <pre><code><span class="kw">finally</span>:
+    <span class="kw">if</span> knowledge_scope_id <span class="kw">is not None</span>:
+        <span class="kw">try</span>:
+            <span class="fn">delete_runtime_knowledge_scope</span>(
+                database_url, knowledge_scope_id
+            )
+        <span class="kw">except</span> <span class="ty">RuntimeKnowledgeError</span>:
+            <span class="cm"># Preserve the real investigation outcome.</span>
+            logger.<span class="fn">error</span>(<span class="st">"Failed to delete a runtime knowledge scope"</span>)</code></pre>
+          </div>
+        </article>
+
+        <article class="pattern">
+          <div class="pattern-copy">
+            <span class="pattern-number">PATTERN 05</span>
+            <h3>Use bearer capabilities for ownerless snapshots</h3>
+            <p>The caller receives a random token once. PostgreSQL keeps only its SHA-256 digest. Read and delete require both the UUID and token.</p>
+            <p class="lesson"><b>Why it fits.</b> The project needs two short-lived comparable runs, not identity, accounts, sessions, or a sharing system.</p>
+            <a class="source-link" href="../resolve_ai/investigation_runs.py">resolve_ai/investigation_runs.py:174</a>
+          </div>
+          <div class="code-wrap">
+            <div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div>
+            <pre><code><span class="kw">def</span> <span class="fn">_token_digest</span>(capability_token: <span class="ty">str</span>) -&gt; <span class="ty">bytes</span>:
+    <span class="kw">if not</span> capability_token.<span class="fn">strip</span>():
+        <span class="kw">raise</span> <span class="ty">ValueError</span>(...)
+    <span class="kw">return</span> hashlib.<span class="fn">sha256</span>(
+        capability_token.<span class="fn">encode</span>(<span class="st">"utf-8"</span>)
+    ).<span class="fn">digest</span>()
+
+capability_token = secrets.<span class="fn">token_urlsafe</span>(<span class="nm">32</span>)</code></pre>
+          </div>
+        </article>
+
+        <article class="pattern">
+          <div class="pattern-copy">
+            <span class="pattern-number">PATTERN 06</span>
+            <h3>Validate network data despite TypeScript</h3>
+            <p>Interfaces disappear after compilation. The browser therefore accepts <code>unknown</code>, checks nested fields and invariants, then narrows to <code>InvestigationResult</code>.</p>
+            <p class="lesson"><b>Why the duplication is acceptable.</b> A code generator would remove repetition but add tooling to a small codebase. Here, the explicit contract is easy to inspect.</p>
+            <a class="source-link" href="../web/lib/api.ts">web/lib/api.ts:142</a>
+          </div>
+          <div class="code-wrap">
+            <div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div>
+            <pre><code><span class="kw">if</span> (value.status === <span class="st">"inconclusive"</span>) {
+  <span class="kw">return</span> value.diagnosis === <span class="kw">null</span>;
+}
+
+<span class="kw">if</span> (value.status !== <span class="st">"diagnosed"</span> || !<span class="fn">isDiagnosis</span>(value.diagnosis)) {
+  <span class="kw">return false</span>;
+}
+
+<span class="kw">return</span> value.diagnosis.supporting_evidence_ids.<span class="fn">every</span>(
+  (id) =&gt; collectedEvidenceIds.<span class="fn">has</span>(id),
+);</code></pre>
+          </div>
+        </article>
+      </div>
+    </section>
+
+<section class="study-section" id="functions"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>Function reference</h2></div><p class="section-intro">Search by function, parameter, or responsibility. Signatures and summaries below are taken from the Python source in this checkout.</p></div><label class="search-label" for="function-search">Find a backend function</label><input id="function-search" type="search" placeholder="Try verify_hypothesis, scope_id, or snapshot" autocomplete="off"><p id="function-count" role="status" aria-live="polite"></p><div class="function-index"><div class="function-module"><h3>investigation.py</h3><article class="function-entry" data-function><h4><code>investigate_incident()</code></h4><p>Adapt fixture/collector records into the shared investigation workflow.</p><p class="function-signature"><code>context: IncidentContext, database_url: str, hypothesis_generator: HypothesisGenerator=generate_fake_hypothesis, reasoner: ReasonerMetadata | None=None → InvestigationResult</code></p><a href="../resolve_ai/investigation.py">Open investigation.py</a><span class="source-line"> · line 48</span></article><article class="function-entry" data-function><h4><code>investigate_evidence()</code></h4><p>Run the synchronous workflow from normalized operational Evidence.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], database_url: str, hypothesis_generator: HypothesisGenerator=generate_fake_hypothesis, reasoner: ReasonerMetadata | None=None, knowledge_scope_id: UUID | None=None → InvestigationResult</code></p><a href="../resolve_ai/investigation.py">Open investigation.py</a><span class="source-line"> · line 65</span></article><article class="function-entry" data-function><h4><code>build_runbook_query()</code></h4><p>Build a deterministic query from the report and observed facts.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence] → str</code></p><a href="../resolve_ai/investigation.py">Open investigation.py</a><span class="source-line"> · line 214</span></article><article class="function-entry" data-function><h4><code>_build_inconclusive_result()</code></h4><p>Return collected observations without inventing a root cause or action.</p><p class="function-signature"><code>incident_id: str, evidence: list[Evidence], retrieved_runbooks: list[RetrievedRunbook], retrieved_knowledge_documents: list[RetrievedKnowledgeDocument], reasoner: ReasonerMetadata → InvestigationResult</code></p><a href="../resolve_ai/investigation.py">Open investigation.py</a><span class="source-line"> · line 228</span></article><article class="function-entry" data-function><h4><code>inspect_logs()</code></h4><p>Select relevant logs and normalize them into ``Evidence``.</p><p class="function-signature"><code>context: IncidentContext → list[Evidence]</code></p><a href="../resolve_ai/investigation.py">Open investigation.py</a><span class="source-line"> · line 248</span></article><article class="function-entry" data-function><h4><code>inspect_deployments()</code></h4><p>Select earlier deployments and normalize each configuration change.</p><p class="function-signature"><code>context: IncidentContext → list[Evidence]</code></p><a href="../resolve_ai/investigation.py">Open investigation.py</a><span class="source-line"> · line 278</span></article><article class="function-entry" data-function><h4><code>verify_hypothesis()</code></h4><p>Promote a hypothesis after checking only that its citations exist.</p><p class="function-signature"><code>incident_id: str, hypothesis: Hypothesis, evidence: list[Evidence], retrieved_runbooks: list[RetrievedRunbook], retrieved_knowledge_documents: list[RetrievedKnowledgeDocument] | None=None, reasoner: ReasonerMetadata | None=None → InvestigationResult</code></p><a href="../resolve_ai/investigation.py">Open investigation.py</a><span class="source-line"> · line 317</span></article></div><div class="function-module"><h3>fake_model.py</h3><article class="function-entry" data-function><h4><code>generate_hypothesis()</code></h4><p>Derive a supported hypothesis solely from normalized evidence facts.</p><p class="function-signature"><code>evidence: list[Evidence] → Hypothesis</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 28</span></article><article class="function-entry" data-function><h4><code>generate_fake_hypothesis()</code></h4><p>Adapt the evidence-only fake to the shared reasoning boundary.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], retrieved_knowledge: list[RetrievedReferenceKnowledge] → Hypothesis</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 86</span></article><article class="function-entry" data-function><h4><code>_find_connection_timeout()</code></h4><p>Return the first database-timeout log, if the list contains one.</p><p class="function-signature"><code>evidence: list[Evidence] → Evidence | None</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 96</span></article><article class="function-entry" data-function><h4><code>_find_latest_connection_pool_change()</code></h4><p>Return the most recent valid pool change without reordering evidence.</p><p class="function-signature"><code>evidence: list[Evidence] → Evidence | None</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 107</span></article><article class="function-entry" data-function><h4><code>_is_connection_pool_change()</code></h4><p>Check that evidence describes a usable connection-pool size change.</p><p class="function-signature"><code>evidence: Evidence → bool</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 123</span></article><article class="function-entry" data-function><h4><code>_is_connection_pool_reduction()</code></h4><p>Check whether a valid pool change makes the pool smaller.</p><p class="function-signature"><code>evidence: Evidence → bool</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 134</span></article><article class="function-entry" data-function><h4><code>_find_expired_certificate()</code></h4><p>Return the first usable expired-certificate log, if one exists.</p><p class="function-signature"><code>evidence: list[Evidence] → Evidence | None</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 147</span></article><article class="function-entry" data-function><h4><code>_is_expired_certificate()</code></h4><p>Require a certificate name because the diagnosis includes that value.</p><p class="function-signature"><code>evidence: Evidence → bool</code></p><a href="../resolve_ai/fake_model.py">Open fake_model.py</a><span class="source-line"> · line 155</span></article></div><div class="function-module"><h3>embeddings.py</h3><article class="function-entry" data-function><h4><code>_get_embedding_model()</code></h4><p>Load the local model once per Python process.</p><p class="function-signature"><code> → TextEmbedding</code></p><a href="../resolve_ai/embeddings.py">Open embeddings.py</a><span class="source-line"> · line 24</span></article><article class="function-entry" data-function><h4><code>build_document_embedding_text()</code></h4><p>Create the shared text representation embedded for reference knowledge.</p><p class="function-signature"><code>title: str, content: str → str</code></p><a href="../resolve_ai/embeddings.py">Open embeddings.py</a><span class="source-line"> · line 29</span></article><article class="function-entry" data-function><h4><code>build_runbook_embedding_text()</code></h4><p>Preserve the named runbook helper used by corpus setup and its tests.</p><p class="function-signature"><code>title: str, content: str → str</code></p><a href="../resolve_ai/embeddings.py">Open embeddings.py</a><span class="source-line"> · line 34</span></article><article class="function-entry" data-function><h4><code>_ordinary_python_vector()</code></h4><p>Convert a model array explicitly into ordinary Python numeric values.</p><p class="function-signature"><code>model_vector: _ModelVector → list[float]</code></p><a href="../resolve_ai/embeddings.py">Open embeddings.py</a><span class="source-line"> · line 39</span></article><article class="function-entry" data-function><h4><code>generate_query_embedding()</code></h4><p>Embed one search query in the model&#x27;s query representation.</p><p class="function-signature"><code>query: str → list[float]</code></p><a href="../resolve_ai/embeddings.py">Open embeddings.py</a><span class="source-line"> · line 45</span></article><article class="function-entry" data-function><h4><code>generate_document_embeddings()</code></h4><p>Embed reference documents in one batch using the passage representation.</p><p class="function-signature"><code>documents: list[str] → list[list[float]]</code></p><a href="../resolve_ai/embeddings.py">Open embeddings.py</a><span class="source-line"> · line 51</span></article></div><div class="function-module"><h3>retrieval.py</h3><article class="function-entry" data-function><h4><code>_validate_search_inputs()</code></h4><p>Validate inputs shared by the two concrete search operations.</p><p class="function-signature"><code>database_url: str, query: str, limit: int → None</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 156</span></article><article class="function-entry" data-function><h4><code>_format_vector_for_postgres()</code></h4><p>Serialize ordinary finite Python values for a parameterized vector cast.</p><p class="function-signature"><code>vector: list[float] → str</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 166</span></article><article class="function-entry" data-function><h4><code>search_runbooks()</code></h4><p>Return runbooks ordered by PostgreSQL lexical relevance.</p><p class="function-signature"><code>database_url: str, query: str, limit: int → list[RunbookSearchResult]</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 177</span></article><article class="function-entry" data-function><h4><code>semantic_search_runbooks()</code></h4><p>Embed a query, then return runbooks ordered by pgvector similarity.</p><p class="function-signature"><code>database_url: str, query: str, limit: int → list[RetrievedRunbook]</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 196</span></article><article class="function-entry" data-function><h4><code>store_runtime_knowledge_documents()</code></h4><p>Embed and atomically store one complete request-scoped document set.</p><p class="function-signature"><code>database_url: str, scope_id: UUID, documents: list[KnowledgeDocument], expires_at: datetime → int</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 237</span></article><article class="function-entry" data-function><h4><code>semantic_search_runtime_knowledge_documents()</code></h4><p>Return semantic matches only from one unexpired runtime scope.</p><p class="function-signature"><code>database_url: str, scope_id: UUID, query: str, limit: int → list[RetrievedKnowledgeDocument]</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 290</span></article><article class="function-entry" data-function><h4><code>delete_runtime_knowledge_scope()</code></h4><p>Delete every document owned by one server-generated request scope.</p><p class="function-signature"><code>database_url: str, scope_id: UUID → int</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 334</span></article><article class="function-entry" data-function><h4><code>populate_runbook_embeddings()</code></h4><p>Generate and store embeddings only for runbooks that need one.</p><p class="function-signature"><code>database_url: str → int</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 354</span></article><article class="function-entry" data-function><h4><code>count_runbooks_without_embeddings()</code></h4><p>Return the number of corpus rows not ready for semantic evaluation.</p><p class="function-signature"><code>database_url: str → int</code></p><a href="../resolve_ai/retrieval.py">Open retrieval.py</a><span class="source-line"> · line 379</span></article></div><div class="function-module"><h3>runtime_input.py</h3><article class="function-entry" data-function><h4><code>_require_timezone()</code></h4><p>Reject ambiguous local timestamps at the public runtime boundary.</p><p class="function-signature"><code>value: datetime → datetime</code></p><a href="../resolve_ai/runtime_input.py">Open runtime_input.py</a><span class="source-line"> · line 74</span></article></div><div class="function-module"><h3>runtime_reasoner.py</h3><article class="function-entry" data-function><h4><code>get_runtime_reasoner()</code></h4><p>Resolve one explicit provider with no cross-provider or fake fallback.</p><p class="function-signature"><code> → ConfiguredRuntimeReasoner</code></p><a href="../resolve_ai/runtime_reasoner.py">Open runtime_reasoner.py</a><span class="source-line"> · line 42</span></article><article class="function-entry" data-function><h4><code>_require_api_key()</code></h4><p>Fail before inference if the selected provider has no usable secret.</p><p class="function-signature"><code>variable_name: str → None</code></p><a href="../resolve_ai/runtime_reasoner.py">Open runtime_reasoner.py</a><span class="source-line"> · line 74</span></article></div><div class="function-module"><h3>openai_model.py</h3><article class="function-entry" data-function><h4><code>build_openai_reasoning_input()</code></h4><p>Serialize the complete reasoning input without adding hidden context.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], retrieved_knowledge: list[RetrievedReferenceKnowledge] → str</code></p><a href="../resolve_ai/openai_model.py">Open openai_model.py</a><span class="source-line"> · line 110</span></article><article class="function-entry" data-function><h4><code>generate_openai_hypothesis()</code></h4><p>Ask OpenAI for a benchmark-taxonomy investigation decision.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], retrieved_knowledge: list[RetrievedReferenceKnowledge], *, client: OpenAI | None=None, model: str=OPENAI_REASONING_MODEL → Hypothesis</code></p><a href="../resolve_ai/openai_model.py">Open openai_model.py</a><span class="source-line"> · line 139</span></article><article class="function-entry" data-function><h4><code>generate_openai_runtime_hypothesis()</code></h4><p>Ask OpenAI for an open-taxonomy runtime investigation decision.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], retrieved_knowledge: list[RetrievedReferenceKnowledge], *, client: OpenAI | None=None, model: str=OPENAI_REASONING_MODEL → Hypothesis</code></p><a href="../resolve_ai/openai_model.py">Open openai_model.py</a><span class="source-line"> · line 168</span></article><article class="function-entry" data-function><h4><code>_generate_hypothesis()</code></h4><p>Run one bounded Responses request and translate its parsed decision.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], retrieved_knowledge: list[RetrievedReferenceKnowledge], *, client: OpenAI, model: str, instructions: str, decision_format: type[OpenAIReasoningDecision] | type[RuntimeReasoningDecision], reasoner_name: str → Hypothesis</code></p><a href="../resolve_ai/openai_model.py">Open openai_model.py</a><span class="source-line"> · line 197</span></article></div><div class="function-module"><h3>openrouter_model.py</h3><article class="function-entry" data-function><h4><code>generate_openrouter_hypothesis()</code></h4><p>Use OpenRouter transport with the existing structured Luna reasoner.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], retrieved_knowledge: list[RetrievedReferenceKnowledge], *, client: OpenAI | None=None, model: str=OPENROUTER_REASONING_MODEL → Hypothesis</code></p><a href="../resolve_ai/openrouter_model.py">Open openrouter_model.py</a><span class="source-line"> · line 24</span></article><article class="function-entry" data-function><h4><code>generate_openrouter_runtime_hypothesis()</code></h4><p>Use OpenRouter transport for open-taxonomy runtime reasoning.</p><p class="function-signature"><code>incident: Incident, evidence: list[Evidence], retrieved_knowledge: list[RetrievedReferenceKnowledge], *, client: OpenAI | None=None, model: str=OPENROUTER_REASONING_MODEL → Hypothesis</code></p><a href="../resolve_ai/openrouter_model.py">Open openrouter_model.py</a><span class="source-line"> · line 56</span></article></div><div class="function-module"><h3>runtime_investigation.py</h3><article class="function-entry" data-function><h4><code>_failure_code()</code></h4><p>Translate known execution failures into a durable public vocabulary.</p><p class="function-signature"><code>error: Exception → RuntimeFailureCode | None</code></p><a href="../resolve_ai/runtime_investigation.py">Open runtime_investigation.py</a><span class="source-line"> · line 94</span></article><article class="function-entry" data-function><h4><code>execute_runtime_investigation()</code></h4><p>Execute a validated bundle and clean up any temporary knowledge scope.</p><p class="function-signature"><code>*, bundle: RuntimeIncidentBundle, database_url: str, reasoner: ConfiguredRuntimeReasoner, knowledge_retention: timedelta → RuntimeInvestigationAttempt</code></p><a href="../resolve_ai/runtime_investigation.py">Open runtime_investigation.py</a><span class="source-line"> · line 126</span></article></div><div class="function-module"><h3>investigation_runs.py</h3><article class="function-entry" data-function><h4><code>current_runtime_execution_metadata()</code></h4><p>Describe the concrete runtime settings compiled into this application.</p><p class="function-signature"><code> → RuntimeExecutionMetadata</code></p><a href="../resolve_ai/investigation_runs.py">Open investigation_runs.py</a><span class="source-line"> · line 69</span></article><article class="function-entry" data-function><h4><code>_token_digest()</code></h4><p>Hash a capability token into the only representation we persist.</p><p class="function-signature"><code>capability_token: str → bytes</code></p><a href="../resolve_ai/investigation_runs.py">Open investigation_runs.py</a><span class="source-line"> · line 174</span></article><article class="function-entry" data-function><h4><code>snapshot_from_attempt()</code></h4><p>Build a completed immutable snapshot from shared runtime execution.</p><p class="function-signature"><code>bundle: RuntimeIncidentBundle, attempt: RuntimeInvestigationAttempt → InvestigationRunSnapshot</code></p><a href="../resolve_ai/investigation_runs.py">Open investigation_runs.py</a><span class="source-line"> · line 181</span></article><article class="function-entry" data-function><h4><code>snapshot_from_failure()</code></h4><p>Build a failed snapshot without persisting provider exception details.</p><p class="function-signature"><code>bundle: RuntimeIncidentBundle, failure: RuntimeInvestigationFailure → InvestigationRunSnapshot</code></p><a href="../resolve_ai/investigation_runs.py">Open investigation_runs.py</a><span class="source-line"> · line 205</span></article><article class="function-entry" data-function><h4><code>create_investigation_run()</code></h4><p>Persist a snapshot once and return the plaintext capability once.</p><p class="function-signature"><code>*, database_url: str, snapshot: InvestigationRunSnapshot, retention: timedelta=INVESTIGATION_RUN_RETENTION → CreatedInvestigationRun</code></p><a href="../resolve_ai/investigation_runs.py">Open investigation_runs.py</a><span class="source-line"> · line 224</span></article><article class="function-entry" data-function><h4><code>get_investigation_run()</code></h4><p>Read one unexpired run when both its ID and capability match.</p><p class="function-signature"><code>*, database_url: str, run_id: UUID, capability_token: str → InvestigationRun | None</code></p><a href="../resolve_ai/investigation_runs.py">Open investigation_runs.py</a><span class="source-line"> · line 277</span></article><article class="function-entry" data-function><h4><code>delete_investigation_run()</code></h4><p>Delete one unexpired run when both its ID and capability match.</p><p class="function-signature"><code>*, database_url: str, run_id: UUID, capability_token: str → bool</code></p><a href="../resolve_ai/investigation_runs.py">Open investigation_runs.py</a><span class="source-line"> · line 298</span></article></div><div class="function-module"><h3>api.py</h3><article class="function-entry" data-function><h4><code>_get_database_url()</code></h4><p>Read the required retrieval database configuration explicitly.</p><p class="function-signature"><code> → str</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 70</span></article><article class="function-entry" data-function><h4><code>_get_runtime_reasoner_or_503()</code></h4><p>Load the server reasoner without exposing configuration details.</p><p class="function-signature"><code> → ConfiguredRuntimeReasoner</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 78</span></article><article class="function-entry" data-function><h4><code>_acquire_runtime_reasoner()</code></h4><p>Reject overlapping provider work before an investigation begins.</p><p class="function-signature"><code> → None</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 89</span></article><article class="function-entry" data-function><h4><code>_runtime_failure_http_exception()</code></h4><p>Preserve the transient endpoint&#x27;s stable HTTP failure contract.</p><p class="function-signature"><code>failure: RuntimeInvestigationFailure → HTTPException</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 98</span></article><article class="function-entry" data-function><h4><code>_bearer_capability()</code></h4><p>Parse an exact bearer capability without placing it in a URL.</p><p class="function-signature"><code>authorization: str | None → str | None</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 128</span></article><article class="function-entry" data-function><h4><code>_run_not_found()</code></h4><p>Give missing and unauthorized callers the same non-disclosing response.</p><p class="function-signature"><code> → HTTPException</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 138</span></article><article class="function-entry" data-function><h4><code>_run_storage_unavailable()</code></h4><p>Hide PostgreSQL details behind a stable API response.</p><p class="function-signature"><code> → HTTPException</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 146</span></article><article class="function-entry" data-function><h4><code>list_incidents_endpoint()</code></h4><p>Return the incidents that callers can choose to investigate.</p><p class="function-signature"><code> → list[Incident]</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 155</span></article><article class="function-entry" data-function><h4><code>get_runtime_reasoner_endpoint()</code></h4><p>Return safe metadata for the configured server-side runtime reasoner.</p><p class="function-signature"><code> → ReasonerMetadata</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 161</span></article><article class="function-entry" data-function><h4><code>investigate_incident_endpoint()</code></h4><p>Load one incident and pass it into the domain workflow.</p><p class="function-signature"><code>incident_id: str → InvestigationResult</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 171</span></article><article class="function-entry" data-function><h4><code>investigate_runtime_bundle_endpoint()</code></h4><p>Investigate one validated bundle without storing it or changing fixtures.</p><p class="function-signature"><code>bundle: RuntimeIncidentBundle → InvestigationResult</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 195</span></article><article class="function-entry" data-function><h4><code>create_runtime_run_endpoint()</code></h4><p>Explicitly execute and save one immutable, one-hour run snapshot.</p><p class="function-signature"><code>bundle: RuntimeIncidentBundle → CreatedInvestigationRun</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 221</span></article><article class="function-entry" data-function><h4><code>get_runtime_run_endpoint()</code></h4><p>Read an unexpired run using its bearer capability.</p><p class="function-signature"><code>run_id: UUID, authorization: Annotated[str | None, Header()]=None → InvestigationRun</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 257</span></article><article class="function-entry" data-function><h4><code>delete_runtime_run_endpoint()</code></h4><p>Delete an unexpired run using its bearer capability.</p><p class="function-signature"><code>run_id: UUID, authorization: Annotated[str | None, Header()]=None → Response</code></p><a href="../resolve_ai/api.py">Open api.py</a><span class="source-line"> · line 282</span></article></div><div class="function-module"><h3>fixtures.py</h3><article class="function-entry" data-function><h4><code>list_incidents()</code></h4><p>Return safe incident copies in chronological order.</p><p class="function-signature"><code> → list[Incident]</code></p><a href="../resolve_ai/fixtures.py">Open fixtures.py</a><span class="source-line"> · line 136</span></article><article class="function-entry" data-function><h4><code>get_incident_context()</code></h4><p>Look up one incident, returning ``None`` when the ID is unknown.</p><p class="function-signature"><code>incident_id: str → IncidentContext | None</code></p><a href="../resolve_ai/fixtures.py">Open fixtures.py</a><span class="source-line"> · line 150</span></article></div><div class="function-module"><h3>telemetry.py</h3><article class="function-entry" data-function><h4><code>configure_console_tracing()</code></h4><p>Configure one process-wide console exporter when explicitly enabled.</p><p class="function-signature"><code> → TracerProvider | None</code></p><a href="../resolve_ai/telemetry.py">Open telemetry.py</a><span class="source-line"> · line 16</span></article><article class="function-entry" data-function><h4><code>force_flush_console_tracing()</code></h4><p>Flush locally configured spans before a short-lived process exits.</p><p class="function-signature"><code> → bool</code></p><a href="../resolve_ai/telemetry.py">Open telemetry.py</a><span class="source-line"> · line 36</span></article></div><div class="function-module"><h3>populate_runbook_embeddings.py</h3><article class="function-entry" data-function><h4><code>main()</code></h4><p>Parse the database URL and embed runbooks that currently need vectors.</p><p class="function-signature"><code> → None</code></p><a href="../resolve_ai/populate_runbook_embeddings.py">Open populate_runbook_embeddings.py</a><span class="source-line"> · line 8</span></article></div></div><p>The reference lists module-level backend functions. Model methods such as <code>to_domain()</code> and <code>validate_decision()</code> are explained in the input and reasoner chapters; browser functions are covered in the browser chapter. Underscore-prefixed names are implementation helpers, not HTTP routes.</p></section>
+    <section class="study-section" id="choices">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Design decisions</p>
+          <h2>Design choices and their tradeoffs</h2>
+        </div>
+        <p class="section-intro">These choices fit the current scale. A good decision can expire when the load, team, or product promise changes.</p>
+      </div>
+      <div class="decision-grid">
+        <article class="decision-card">
+          <h3><span>01</span> Plain synchronous Python</h3>
+          <p>The operation is one bounded sequence and the API permits one live call per process.</p>
+          <div class="decision-pair"><div><strong>Chosen because</strong><p>Call order, errors, and cleanup remain visible in one function.</p></div><div><strong>Not LangGraph or a queue</strong><p>No tool loop, checkpoint, job polling, or recovery workflow exists yet.</p></div></div>
+        </article>
+        <article class="decision-card">
+          <h3><span>02</span> Semantic Top-3 in PostgreSQL</h3>
+          <p>The frozen benchmark improved from 5/18 lexical Top-1 to 16/18 semantic Top-1.</p>
+          <div class="decision-pair"><div><strong>Chosen because</strong><p>pgvector keeps retrieval beside the stored corpus with deterministic tie-breaking.</p></div><div><strong>Not a vector service</strong><p>Nine runbooks and at most five runtime documents do not justify another system.</p></div></div>
+        </article>
+        <article class="decision-card">
+          <h3><span>03</span> Open runtime labels</h3>
+          <p>Unseen incidents should not be forced into the six-label frozen benchmark taxonomy.</p>
+          <div class="decision-pair"><div><strong>Chosen because</strong><p>Bounded snake_case preserves causes outside the original synthetic set.</p></div><div><strong>Not an equality key</strong><p>Live runs produced sound prose with unstable label wording and 0/9 exact-label accuracy.</p></div></div>
+        </article>
+        <article class="decision-card">
+          <h3><span>04</span> One configured provider</h3>
+          <p>The server selects OpenAI or OpenRouter and exposes only safe model metadata.</p>
+          <div class="decision-pair"><div><strong>Chosen because</strong><p>Costs, keys, timeouts, and output behavior stay operator-controlled.</p></div><div><strong>Not automatic fallback</strong><p>A fallback would make provenance and repeated-run comparison harder to explain.</p></div></div>
+        </article>
+        <article class="decision-card">
+          <h3><span>05</span> Immutable one-hour snapshots</h3>
+          <p>A saved run captures input, retrieval, output, settings, timestamps, and stable failures.</p>
+          <div class="decision-pair"><div><strong>Chosen because</strong><p>Two attempts can be compared without building user storage.</p></div><div><strong>Not CRUD history</strong><p>No owner, list, or update route means far less privacy and authorization machinery.</p></div></div>
+        </article>
+        <article class="decision-card">
+          <h3><span>06</span> Honest inconclusive outcomes</h3>
+          <p><code>InsufficientEvidenceError</code> is caught as a normal reasoning branch.</p>
+          <div class="decision-pair"><div><strong>Chosen because</strong><p>Uncertainty is information and should return the collected Evidence and references.</p></div><div><strong>Not a generic exception</strong><p>Provider, validation, citation, and storage failures require different operator responses.</p></div></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="study-section" id="failure-model">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Failure semantics</p>
+          <h2>The distinctions matter</h2>
+        </div>
+        <p class="section-intro">Calling every non-diagnosis "inconclusive" would make infrastructure failure look like responsible model abstention. ResolveAI keeps them apart.</p>
+      </div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Data and failure reference"><table class="failure-table">
+        <thead><tr><th scope="col">Event</th><th scope="col">Meaning</th><th scope="col">Transient API</th><th scope="col">Saved run</th></tr></thead>
+        <tbody>
+          <tr><td><code>InsufficientEvidenceError</code></td><td>The available facts do not support one cause.</td><td class="good">200 inconclusive</td><td>Completed snapshot</td></tr>
+          <tr><td><code>UnknownEvidenceError</code></td><td>The model cited an ID outside collected Evidence.</td><td class="bad">502 invalid citations</td><td>Failed snapshot</td></tr>
+          <tr><td>Provider timeout</td><td>Reasoning did not finish inside 30 seconds.</td><td class="warn">504 timeout</td><td>Failed snapshot</td></tr>
+          <tr><td>Provider unavailable</td><td>Authentication, rate limit, connection, or provider status failure.</td><td class="warn">503 unavailable</td><td>Failed snapshot</td></tr>
+          <tr><td>Runtime knowledge failure</td><td>Scoped storage or retrieval could not complete.</td><td class="warn">503 unavailable</td><td>Failed snapshot</td></tr>
+          <tr><td>Saved-run storage failure</td><td>The investigation may have run, but provenance was not stored.</td><td>Not applicable</td><td class="bad">503, no fake run</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="study-section" id="storage">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Data lifetime</p>
+          <h2>Storage follows intent</h2>
+        </div>
+        <p class="section-intro">Prepared data and benchmark runbooks are durable inputs. Runtime text is transient. A user must choose to create a short-lived provenance record.</p>
+      </div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Data and failure reference"><table class="storage-table">
+        <thead><tr><th scope="col">Data</th><th scope="col">Where</th><th scope="col">Lifetime</th><th scope="col">Why</th></tr></thead>
+        <tbody>
+          <tr><td>Prepared incidents</td><td>Python fixtures</td><td>Process lifetime</td><td>Deterministic guided demo</td></tr>
+          <tr><td>Nine frozen runbooks</td><td><code>runbooks</code></td><td>Durable</td><td>Stable retrieval benchmark</td></tr>
+          <tr><td>Runtime documents</td><td><code>runtime_knowledge_documents</code></td><td>Request, with 15-minute fallback expiry</td><td>Private retrieval scope without corpus contamination</td></tr>
+          <tr><td>Transient bundle and result</td><td>Memory</td><td>Request lifetime</td><td>Default path stores nothing</td></tr>
+          <tr><td>Explicit saved run</td><td><code>investigation_runs</code> JSONB</td><td>One hour</td><td>Short comparison without accounts</td></tr>
+          <tr><td>Capability</td><td>Caller plaintext, database digest</td><td>One hour or deletion</td><td>Possession grants read and delete access</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+<section class="study-section" id="lifecycle"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>Execution, cleanup, and saved provenance</h2></div><p class="section-intro">The transient and saved endpoints wrap the same execution function. Saving starts a new investigation and records that attempt.</p></div>
+<h3>The runtime wrapper owns temporary resources</h3><p><code>execute_runtime_investigation()</code> converts the bundle, records a UTC start time, and starts a monotonic <code>perf_counter()</code> for elapsed duration. With documents, it allocates a UUID and sets expiry to start time plus 15 minutes. <code>store_runtime_knowledge_documents()</code> embeds the entire set, then uses a Psycopg transaction to insert all rows or roll them all back.</p><p>The inner <code>capture_retrieval()</code> function copies the ordered references passed to the live reasoner. This closure preserves the references if reasoning later fails. If retrieval fails before the callable runs, it has no captured references, even if an earlier search completed.</p><p>The <code>finally</code> block attempts scope deletion on success and failure, including a failed store. A cleanup error is logged and does not replace the original investigation outcome. Scope filtering isolates requests immediately; expiry later excludes stale rows, and future ingestion purges them. There is no scheduled deletion worker.</p>
+<h3>Known failures have a safe, reusable vocabulary</h3><p><code>_failure_code()</code> maps known exceptions to five categories. <code>RuntimeInvestigationFailure</code> holds the category, copied metadata and references, timestamps, and duration. Python exception chaining retains the underlying exception for debugging. Unknown exceptions propagate. In particular, frozen-runbook PostgreSQL failures are not all translated into the runtime-knowledge category.</p>
+<h3>A saved run records a result or a known failure</h3><p><code>snapshot_from_attempt()</code> copies the submitted bundle and successful result. An inconclusive result is still a completed attempt. <code>snapshot_from_failure()</code> keeps the bundle, captured references, and safe failure code without raw provider exception details. The snapshot validator requires exactly one result or failure, matching incident IDs for results, and completion at or after the start time.</p><p>Execution metadata records application, prompt, and output-schema versions; retrieval strategy and limit; embedding model; reasoning effort; output-token budget; and timeout. This explains differences between runs, but does not guarantee deterministic replay of a live provider response.</p>
+<h3>Possession of a token grants access</h3><p><code>create_investigation_run()</code> generates a UUID and <code>secrets.token_urlsafe(32)</code> capability. PostgreSQL stores its SHA-256 digest and the JSONB snapshot. The creation response returns the plaintext token once. Read and delete requests send it in <code>Authorization: Bearer …</code>, never in the URL.</p><p>The SQL requires the ID, matching digest, and an unexpired row. The API gives missing, unauthorized, deleted, and expired runs the same 404 response. There is no account, list route, or update route. One-hour expiry begins when the snapshot is stored. Expired rows are purged opportunistically during run operations; physical deletion at an exact deadline is not guaranteed.</p><div class="note"><strong>Saved data includes document text.</strong> Deleting temporary retrieval rows does not remove documents copied into an explicitly saved bundle or its retrieved-reference lists. Those copies follow the saved run's one-hour lifetime. The default transient path creates no investigation snapshot.</div><p class="source-line">Source: <a href="../resolve_ai/runtime_investigation.py">runtime_investigation.py</a>, <a href="../resolve_ai/investigation_runs.py">investigation_runs.py</a>.</p></section>
+<section class="study-section" id="http"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>HTTP routes and failure behavior</h2></div><p class="section-intro">FastAPI adapts transport concerns. The core investigation code does not choose HTTP status codes.</p></div><div class="table-scroll" tabindex="0" role="region" aria-label="Request reference table"><table><thead><tr><th scope="col">Request</th><th scope="col">Success</th><th scope="col">Behavior</th></tr></thead><tbody><tr><td>GET <code>/incidents</code></td><td>200 · Incident list</td><td>Lists three prepared synthetic reports.</td></tr><tr><td>POST <code>/incidents/{incident_id}/investigate</code></td><td>200 · InvestigationResult</td><td>Loads a copied fixture context and uses the deterministic reasoner; unknown incident returns 404.</td></tr><tr><td>GET <code>/runtime/reasoner</code></td><td>200 · ReasonerMetadata</td><td>Exposes configured provider/model only; missing configuration returns 503.</td></tr><tr><td>GET <code>/runtime/comparison</code></td><td>200 · Comparison configuration</td><td>Reports fixed models, protocol, candidate limit, and whether both server keys are present.</td></tr><tr><td>POST <code>/runtime/compare</code></td><td>200 · NDJSON stream</td><td>Validates the bundle and hypotheses, retrieves once, and streams independent provider outcomes and cleanup status. Missing keys return 503; busy admission returns 429.</td></tr><tr><td>POST <code>/runtime/investigate</code></td><td>200 · InvestigationResult</td><td>Runs a validated bundle transiently; known execution failures become HTTP errors.</td></tr><tr><td>POST <code>/runtime/runs</code></td><td>201 · CreatedInvestigationRun</td><td>Executes and stores a snapshot plus returns its capability. A categorized failed attempt can still produce 201 because a failed snapshot was saved.</td></tr><tr><td>GET <code>/runtime/runs/{run_id}</code></td><td>200 · InvestigationRun</td><td>Requires bearer capability and unexpired UUID-addressed record.</td></tr><tr><td>DELETE <code>/runtime/runs/{run_id}</code></td><td>204 · Empty body</td><td>Requires the same capability; removes that saved run.</td></tr></tbody></table></div><h3>Admission is separate from execution</h3><p>Runtime routes check provider configuration and acquire <code>BoundedSemaphore(1)</code> without blocking. A busy process responds with 429. Ordinary runtime routes release the gate in <code>finally</code>; the saved route stores its snapshot after releasing it. Multiple worker processes each have their own semaphore, so this is not a deployment-wide concurrency limit.</p><p>Input validation returns 422. Invalid citations and invalid reasoner output map to 502. Provider timeout maps to 504. Known provider availability and runtime-knowledge failures map to 503. Snapshot storage failure also returns 503, without pretending that a run was saved. Unclassified exceptions are allowed to propagate rather than being reported as an inconclusive investigation.</p><p class="source-line">Source: <a href="../resolve_ai/api.py">api.py</a> and <a href="../tests/test_api.py">test_api.py</a>.</p></section>
+<section class="study-section" id="browser"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>How the browser keeps the contract</h2></div><p class="section-intro">Next.js presents the two investigation modes and forwards same-origin API requests to FastAPI. React owns the current editing and comparison state.</p></div>
+<h3>Form and JSON editing share one bundle</h3><p><code>RuntimeInvestigationWorkspace</code> owns the bundle, validation messages, request state, current result, and saved comparisons with React state. The editor components update the same bundle. <code>cloneExampleRuntimeBundle()</code> returns an independent initial value. <code>prepareRuntimeBundle()</code> copies the form data and converts local datetime values to timestamps with offsets before submission.</p><p><code>validateRuntimeBundle()</code> returns readable errors. <code>parseRuntimeBundleJson()</code> parses JSON as unknown, validates it, and returns a typed bundle only after checks pass. <code>runtimeDocumentsFromFiles()</code> reads supported local text and Markdown files into document values. It does not upload arbitrary binary files or fetch URLs.</p>
+<h3>One user action becomes one request</h3><p><code>runInvestigation()</code> checks browser form validity, prepares and validates the bundle, and sets state to loading. Transient mode calls <code>investigateRuntimeBundle()</code>. Saved mode calls <code>createRuntimeInvestigationRun()</code>, then fetches the created run with its returned capability before adding it to comparisons. Error handling changes the request state; <code>finally</code> clears the active action.</p>
+<h3>TypeScript cannot validate network bytes</h3><p>TypeScript checks code during development. JSON arriving over HTTP can still violate the declared types. <code>requestJson()</code> therefore returns unknown. Nested guards such as <code>isEvidence()</code> and <code>isInvestigationResult()</code> check actual values. The result guard requires no diagnosis for inconclusive status and checks that every supporting citation names returned Evidence for a diagnosed result.</p><p><code>ApiRequestError</code> represents an HTTP failure, including readable FastAPI validation locations. <code>UnexpectedResponseError</code> represents JSON that cannot be parsed or fails the expected response shape. The workspaces display these separately from diagnosed and inconclusive outcomes.</p>
+<h3>Comparison shows repeatability, not a semantic verdict</h3><p>The UI holds at most two saved runs for the same incident ID. This is a browser constraint, not a server-wide per-incident quota. Capability tokens stay in component memory; reloading loses that access state. The same incident ID also does not prove the rest of the two submitted bundles are identical.</p><p>The comparison component displays raw labels and prose. Its mechanical comparisons include outcome, ordered retrieved references, and supporting citation IDs, sorted before comparison. Different labels do not automatically mean different causes. Deletion calls the protected endpoint and removes the local comparison only after success.</p><p class="source-line">Source: <a href="../web/lib/api.ts">web/lib/api.ts</a>, <a href="../web/lib/runtime-bundle.ts">runtime-bundle.ts</a>, <a href="../web/components/runtime-investigation-workspace.tsx">runtime-investigation-workspace.tsx</a>, <a href="../web/components/runtime-run-comparison.tsx">runtime-run-comparison.tsx</a>.</p></section>
+    <section class="study-section" id="evaluation">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">What the evidence says</p>
+          <h2>Measure the right failure</h2>
+        </div>
+        <p class="section-intro">The archived evaluations measure retrieval, causal reasoning, abstention, and cleanup separately. Raw label equality and human causal review answer different questions.</p>
+      </div>
+      <div class="measurement">
+        <div class="bar-list" aria-label="Selected evaluation results">
+          <div><div class="metric-label"><span>Lexical retrieval Top-1</span><strong>5 / 18</strong></div><div class="bar"><span style="--value:27.8%;--metric-color:var(--coral)"></span></div></div>
+          <div><div class="metric-label"><span>Semantic retrieval Top-1</span><strong>16 / 18</strong></div><div class="bar"><span style="--value:88.9%"></span></div></div>
+          <div><div class="metric-label"><span>Phase 7.6 required document Top-3</span><strong>6 / 6</strong></div><div class="bar"><span style="--value:100%"></span></div></div>
+          <div><div class="metric-label"><span>Live status accuracy</span><strong>11 / 12</strong></div><div class="bar"><span style="--value:91.7%;--metric-color:var(--amber)"></span></div></div>
+          <div><div class="metric-label"><span>Exact runtime label accuracy</span><strong>0 / 9</strong></div><div class="bar"><span style="--value:0%;--metric-color:var(--coral)"></span></div></div>
+          <div><div class="metric-label"><span>Blind causal review, all facets</span><strong>8 / 8</strong></div><div class="bar"><span style="--value:100%;--metric-color:var(--blue)"></span></div></div>
+        </div>
+        <div class="measurement-copy">
+          <p class="kicker">Read this carefully</p>
+          <h3>Exact labels and causal correctness measure different things</h3>
+          <p>The model used different snake_case labels even when its accepted Evidence and causal prose agreed. The team kept exact-label accuracy visible, then added a blind facet review instead of tuning the product to a brittle string.</p>
+          <p>The Phase 7.6 blind review covered eight diagnosed outputs. All eight passed the expected causal facets with no forbidden claims. The archived packet omitted citation IDs, so causal-match citation precision and recall cannot be reconstructed. These are small synthetic results, not evidence of production reliability.</p>
+          <a class="source-link" href="../evals/runtime_contract_report.md">evals/runtime_contract_report.md</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="study-section" id="limits">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Recommendations</p>
+          <h2>Keep the clarity. Harden only what demand proves.</h2>
+        </div>
+        <p class="section-intro">The current limits are acceptable for a showcase. The next move should preserve the codebase's strongest quality: you can still explain the whole request in one sitting.</p>
+      </div>
+      <div class="limits-grid">
+        <article class="keep-card">
+          <h3>Do not "fix" these</h3>
+          <ul>
+            <li><strong>Keep Evidence separate from reference knowledge.</strong> This is the core safety boundary.</li>
+            <li><strong>Keep abstention ordinary.</strong> Inconclusive is a useful result, not a red error banner.</li>
+            <li><strong>Keep the single shared workflow.</strong> Do not create a runtime-only reasoning pipeline.</li>
+            <li><strong>Keep frozen evaluations outside product imports.</strong> Tests should measure behavior without becoming behavior.</li>
+            <li><strong>Keep raw labels out of semantic equality decisions.</strong> Compare stable fields and leave causal prose to human review.</li>
+          </ul>
+        </article>
+        <article class="recommendations">
+          <h3>Change these when the trigger arrives</h3>
+          <ol>
+            <li><span class="priority">P1</span><strong>Add an external concurrency limit before multiple API replicas.</strong> The current semaphore allows one provider call per process, not one across the deployment.</li>
+            <li><span class="priority">P1</span><strong>Add scheduled deletion if retention becomes a promise.</strong> Opportunistic purge and expiry protect retrieval, but stale rows can remain physically stored.</li>
+            <li><span class="priority">P2</span><strong>Move live work to jobs only when request timeouts hurt users.</strong> That change brings IDs, polling, cancellation, and worker recovery. Do it as one explicit product step.</li>
+            <li><span class="priority">P2</span><strong>Generate browser validators when the contract changes often.</strong> Manual guards are readable now. Repeated drift would justify schema generation.</li>
+            <li><span class="priority">P3</span><strong>Add entailment checks only with a measured rubric.</strong> Citation existence is mechanical. Causal support needs evaluation data, not another vague model prompt.</li>
+          </ol>
+        </article>
+      </div>
+    </section>
+
+<section class="study-section" id="study-lab"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>Run, observe, and challenge the workflow</h2></div><p class="section-intro">Use deterministic tests first. Database checks answer a different question from unit tests, and live evaluations require a configured paid provider.</p></div>
+<h3>Start the local backend</h3><p>The repository specifies Python 3.13, uv, PostgreSQL 17, and pgvector. Run these commands from the repository root. The embedding command may need to download its local model on first use.</p><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code>uv sync
+docker compose up -d database
+docker compose exec -T database \
+  psql -U resolveai -d resolveai -v ON_ERROR_STOP=1 &lt; database/init.sql
+uv run python -m resolve_ai.populate_runbook_embeddings \
+  --database-url postgresql://resolveai:resolveai@localhost:5432/resolveai
+DATABASE_URL=postgresql://resolveai:resolveai@localhost:5432/resolveai \
+  uv run uvicorn resolve_ai.api:app --reload</code></pre></div><p>In another terminal, compare a diagnosed and inconclusive fixture.</p><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code>curl -X POST http://127.0.0.1:8000/incidents/INC-001/investigate
+curl -X POST http://127.0.0.1:8000/incidents/INC-003/investigate</code></pre></div><h3>Start the browser</h3><p>The frontend uses Node.js 24 and the pnpm version pinned in <code>web/package.json</code>. Runtime reasoning additionally needs the provider selection and matching key described in <code>.env.example</code>.</p><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code>cd web
+cp .env.local.example .env.local
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run dev</code></pre></div><p>Open <code>http://127.0.0.1:3000</code>. In Docker, Next.js reaches FastAPI as <code>api</code> and FastAPI reaches PostgreSQL as <code>database</code>. The Next.js API rewrite is compiled during the production build, so changing <code>RESOLVEAI_API_URL</code> for a production image requires rebuilding it.</p>
+<h3>Test a specific explanation</h3><div class="table-scroll" tabindex="0" role="region" aria-label="Question reference table"><table><thead><tr><th scope="col">Question</th><th scope="col">Read or run</th><th scope="col">What this establishes</th></tr></thead><tbody><tr><td>Which observations survive collection?</td><td><a href="../tests/test_investigation.py">test_investigation.py</a></td><td>Service/time filtering, normalization, citation membership, diagnosed and inconclusive behavior.</td></tr><tr><td>Can a malformed bundle enter the workflow?</td><td><a href="../tests/test_api.py">test_api.py</a></td><td>HTTP boundary behavior, validation, and error translation.</td></tr><tr><td>Do ranking and isolation work in PostgreSQL?</td><td><a href="../tests/test_retrieval.py">test_retrieval.py</a></td><td>Real SQL behavior when integration prerequisites are configured.</td></tr><tr><td>Are model decisions coherent?</td><td><a href="../tests/test_openai_model.py">test_openai_model.py</a> and <a href="../tests/test_openrouter_model.py">test_openrouter_model.py</a></td><td>Provider request construction and decision parsing with controlled responses.</td></tr><tr><td>Can saved provenance be read or deleted without its token?</td><td><a href="../tests/test_investigation_runs.py">test_investigation_runs.py</a></td><td>Snapshot relationships, storage, capability access, and expiry boundaries.</td></tr><tr><td>Does form input preserve the runtime contract?</td><td><a href="../web/lib/runtime-bundle.test.ts">runtime-bundle.test.ts</a></td><td>Parsing, bounds, timestamps, and document preparation in browser helpers.</td></tr></tbody></table></div><div class="code-wrap"><div class="code-toolbar"><button class="copy-button" type="button">Copy</button></div><pre><code>uv run pytest tests/test_investigation.py -q
+uv run pytest -q
+TEST_DATABASE_URL=postgresql://resolveai:resolveai@localhost:5432/resolveai \
+  uv run pytest -m integration -q
+
+# From web/:
+pnpm run typecheck
+pnpm run lint
+pnpm run test
+pnpm run build</code></pre></div><h3>Observe where time is spent</h3><p>Set <code>RESOLVEAI_TRACE_CONSOLE=1</code> when starting the API to enable console OpenTelemetry export. The parent <code>investigation</code> span contains retrieval, hypothesis generation, and citation verification. Embedding and PostgreSQL query spans separate model preparation from database work. The shared workflow catches expected abstention inside the reasoning span, so it is not recorded as an exceptional operation.</p><p>Saved-run duration measures the runtime wrapper, not the entire browser request or snapshot write. Successful duration includes the cleanup attempt. The failure timestamp and duration are captured before the cleanup block runs. Read these timings with those boundaries in mind.</p><p class="source-line">Setup and full checks: <a href="../README.md">README.md</a>. Study sequence: <a href="code-study.md">code-study.md</a>. CI: <a href="../.github/workflows/ci.yml">ci.yml</a>.</p></section>
+<section class="study-section" id="glossary"><div class="section-heading"><div><p class="kicker">Implementation guide</p><h2>A compact glossary</h2></div><p class="section-intro">Terms used throughout this guide, tied to the code that gives them meaning.</p></div><div class="table-scroll" tabindex="0" role="region" aria-label="Term reference table"><table><thead><tr><th scope="col">Term</th><th scope="col">Meaning in ResolveAI</th></tr></thead><tbody><tr><td>Adapter</td><td>A function that converts one boundary to another, such as runtime JSON models to Incident and Evidence, or a provider decision to Hypothesis.</td></tr><tr><td>Domain model</td><td>A Python data shape describing the investigation itself, independent of the HTTP request that supplied it.</td></tr><tr><td>DTO</td><td>A data transfer object. RuntimeIncidentBundle carries the public JSON contract and converts to domain values after validation.</td></tr><tr><td>Embedding</td><td>A numeric representation of text used for similarity search. This project uses 384 values per query or document.</td></tr><tr><td>Invariant</td><td>A relationship that must remain true, such as an inconclusive decision having no diagnosis fields.</td></tr><tr><td>Citation verification</td><td>Checking proposed IDs against the investigation's Evidence IDs. It does not evaluate whether the prose follows from the facts.</td></tr><tr><td>Abstention</td><td>The reasoner declines to propose a supported cause. The application returns a normal inconclusive result.</td></tr><tr><td>Scope</td><td>A server-generated UUID that limits a runtime-document query to one request's rows.</td></tr><tr><td>Transaction</td><td>A database operation group that commits together or rolls back. Runtime document insertion uses this to avoid partly stored sets.</td></tr><tr><td>Capability</td><td>An unguessable bearer token whose possession grants read/delete access to one saved run until expiry.</td></tr><tr><td>Provenance</td><td>The recorded input, ordered references, output or failure, settings, and timing needed to explain what happened in an attempt.</td></tr><tr><td>Frozen evaluation</td><td>A fixed dataset used to compare behavior consistently. Runtime user input never becomes benchmark data automatically.</td></tr></tbody></table></div></section>
+    <section class="study-section" id="reading-order">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Reading order</p>
+          <h2>Now open the code</h2>
+        </div>
+        <p class="section-intro">Read the production path first. Use tests to challenge your explanation. Leave the large evaluators until the domain workflow feels obvious.</p>
+      </div>
+      <div class="reading-path">
+        <a class="reading-card" href="../resolve_ai/models.py"><b>Domain shapes</b><span>models.py</span></a>
+        <a class="reading-card" href="../resolve_ai/investigation.py"><b>Shared workflow</b><span>investigation.py</span></a>
+        <a class="reading-card" href="../resolve_ai/retrieval.py"><b>Retrieval SQL</b><span>embeddings.py + retrieval.py</span></a>
+        <a class="reading-card" href="../resolve_ai/runtime_input.py"><b>Runtime boundary</b><span>runtime_input.py</span></a>
+        <a class="reading-card" href="../resolve_ai/openai_model.py"><b>Structured reasoner</b><span>openai_model.py</span></a>
+        <a class="reading-card" href="../resolve_ai/runtime_investigation.py"><b>Cleanup wrapper</b><span>runtime_investigation.py</span></a>
+        <a class="reading-card" href="../resolve_ai/investigation_runs.py"><b>Saved provenance</b><span>investigation_runs.py</span></a>
+        <a class="reading-card" href="../web/lib/api.ts"><b>Browser contract</b><span>web/lib/api.ts</span></a>
+      </div>
+      <div style="margin-top:36px">
+        <details>
+          <summary>How do prepared and runtime inputs converge?</summary>
+          <p>The prepared adapter collects Evidence from fixture records. The runtime adapter validates and converts public JSON. Both call <code>investigate_evidence()</code> with the same domain types.</p>
+        </details>
+        <details>
+          <summary>What stops a runbook from becoming proof?</summary>
+          <p>Runbooks and runtime documents have separate types and lists. <code>verify_hypothesis()</code> resolves proposed citations only against collected Evidence IDs.</p>
+        </details>
+        <details>
+          <summary>Why is an inconclusive result not a failure?</summary>
+          <p>The reasoner uses a dedicated abstention exception or structured status. The workflow returns the Evidence and retrieved knowledge with no diagnosis. Provider and storage errors follow separate paths.</p>
+        </details>
+        <details>
+          <summary>What disappears after a runtime request?</summary>
+          <p>The bundle and result are transient by default. Scoped documents are deleted in <code>finally</code>, with expiry as a fallback. Only an explicit save creates a one-hour immutable snapshot.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="study-section" id="jev-experiment">
+      <div class="section-heading"><div><h2>Jev decision experiment</h2><p>Separate from the app runtime. Six synthetic incident families, four input variants, and 48 live calls on 2026-09-21.</p></div></div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Jev bounded decision results"><table>
+        <thead><tr><th scope="col">Measurement</th><th scope="col">Jev</th><th scope="col">OpenRouter</th></tr></thead>
+        <tbody><tr><th scope="row">Cause selection</th><td>24/24</td><td>24/24</td></tr>
+        <tr><th scope="row">Correct abstention</th><td>9/9</td><td>9/9</td></tr>
+        <tr><th scope="row">Evidence-relation label agreement</th><td>31/39</td><td>38/39</td></tr>
+        <tr><th scope="row">Median request duration</th><td>711 ms</td><td>1,711 ms</td></tr>
+        <tr><th scope="row">Failures</th><td>0/24</td><td>0/24</td></tr></tbody>
+      </table></div>
+      <p>Both models received identical state and bounded questions. The prose variant preserved all fields; paraphrases changed observation summaries only. No retrieval, generated diagnosis, or remediation was measured. Variants are correlated and each ran once.</p>
+      <p>Some evidence labels are debatable because the question asks about one observation while the claim combines several facts. The next step is independent rubric review and a harder bounded evaluation. These results do not establish full investigation accuracy.</p>
+      <p><a href="../evals/jev_decision_report.md">Read the protocol, cost accounting, and disagreements</a> · <a href="../evals/jev_decision_results.jsonl">Inspect all requests and results</a></p>
+    </section>
+
+    <section class="study-section" id="model-comparison">
+      <div class="section-heading"><div><p class="kicker">Experimental product path</p><h2>Compare OpenRouter and Jev</h2></div><p class="section-intro">One incident, one retrieval, two independent assessments of explicit candidate hypotheses.</p></div>
+      <p>The Compare models workspace accepts the ordinary incident bundle and one to five candidate causes. Both providers select a cause or abstain. A second call assesses the observations against the selected cause with the full incident context. Contradictory evidence or no supporting observations leaves the result inconclusive.</p>
+      <div class="topology"><div class="topology-node"><strong>Shared preparation</strong><span>Validate · ingest · retrieve once</span></div><span class="arrow" aria-hidden="true">→</span><div class="topology-node"><strong>Parallel branches</strong><span>OpenRouter / Jev · select · assess evidence</span></div><span class="arrow" aria-hidden="true">→</span><div class="topology-node"><strong>Stream and clean up</strong><span>Independent results · one scope · JSON download</span></div></div>
+      <p>The shared-clock chart separates preparation from each route. Blue identifies OpenRouter and plum identifies Jev. Results show reported tokens and cost, exact Evidence IDs, stage decisions, and timing. Native confidence is not accuracy; a new incident displays “Not assessed.” The app copies the chosen candidate text and does not generate remediation in this mode.</p>
+      <h3>What the harder experiment established</h3>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Harder Jev comparison results"><table><thead><tr><th scope="col">Measurement</th><th scope="col">Jev</th><th scope="col">OpenRouter</th></tr></thead><tbody>
+        <tr><th scope="row">Cause selection, ten families in two orders</th><td>20/20</td><td>20/20</td></tr>
+        <tr><th scope="row">Abstention with partial or conflicting evidence</th><td>10/10</td><td>10/10</td></tr>
+        <tr><th scope="row">Atomic evidence-label agreement</th><td>38/42</td><td>41/42</td></tr>
+        <tr><th scope="row">Median single-stage call</th><td>746 ms</td><td>1,987 ms</td></tr>
+        <tr><th scope="row">Production two-stage outcome regression</th><td>10/10</td><td>10/10</td></tr>
+      </tbody></table></div>
+      <p>The production regression reused these families and is not a new holdout. Its full-context evidence questions differ from the atomic evaluation. Neither set establishes general incident accuracy or reliable automatic citation selection.</p>
+      <h3>Failure and retention boundaries</h3>
+      <p>A provider failure preserves the other result. Shared preparation failure stops both. A request-owned worker retains admission until calls and cleanup finish even if the browser disconnects. Each route makes at most two calls with 30-second SDK timeouts and no retries. This is process-local admission, not a deployment-wide quota. Immediate document deletion can be deferred to expiry and later purge if PostgreSQL cleanup fails.</p>
+      <p>Results remain transient, with JSON download for review. Editing input marks displayed results stale. The saved-run workflow remains separate. The next open problem is candidate coverage; the user supplies hypotheses in this feature, and automatic extraction has not been validated.</p>
+      <p class="source-line">Sources: <a href="../resolve_ai/comparison.py">comparison coordinator</a>, <a href="../resolve_ai/comparison_reasoner.py">provider decisions</a>, <a href="../evals/jev_pressure_report.md">pressure report</a>, and <a href="../JEV_IMPLEMENTATION_PLAN.md">implementation checklist</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div><span>Checked against repository documentation and implementation. Model names and measured results describe this checkout and its archived reports.</span><span>Companion guide: <a href="code-study.md">docs/code-study.md</a></span></div>
+  </footer>
+
+  <script>
+    const root = document.documentElement;
+    const themeToggle = document.querySelector("#theme-toggle");
+    let savedTheme;
+    try { savedTheme = localStorage.getItem("resolveai-study-theme"); } catch {}
+    if (savedTheme === "light" || savedTheme === "dark") root.dataset.theme = savedTheme;
+
+    function syncThemeLabel() {
+      const next = root.dataset.theme === "dark" ? "light" : "dark";
+      themeToggle.setAttribute("aria-label", `Switch to ${next} theme`);
+    }
+    syncThemeLabel();
+
+    themeToggle.addEventListener("click", () => {
+      root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+      try { localStorage.setItem("resolveai-study-theme", root.dataset.theme); } catch {}
+      syncThemeLabel();
+    });
+
+    const progress = document.querySelector("#reading-progress");
+    function updateProgress() {
+      const available = document.documentElement.scrollHeight - window.innerHeight;
+      const percent = available > 0 ? Math.min(100, window.scrollY / available * 100) : 0;
+      progress.style.width = `${percent}%`;
+    }
+    updateProgress();
+    addEventListener("scroll", updateProgress, { passive: true });
+    addEventListener("resize", updateProgress);
+
+    const layerButtons = [...document.querySelectorAll("[data-layer]")];
+    const layerPanels = [...document.querySelectorAll(".layer-panel")];
+    function selectLayer(button) {
+      layerButtons.forEach((item) => item.setAttribute("aria-selected", String(item === button)));
+      layerPanels.forEach((panel) => { panel.hidden = panel.id !== `layer-${button.dataset.layer}`; });
+    }
+    layerButtons.forEach((button, index) => {
+      button.addEventListener("click", () => selectLayer(button));
+
+    });
+
+    const traceButtons = [...document.querySelectorAll("[data-trace-select]")];
+    const traces = [...document.querySelectorAll("[data-trace]")];
+    traceButtons.forEach((button) => button.addEventListener("click", () => {
+      traceButtons.forEach((item) => item.setAttribute("aria-selected", String(item === button)));
+      traces.forEach((trace) => { trace.hidden = trace.dataset.trace !== button.dataset.traceSelect; });
+    }));
+
+    document.querySelectorAll(".copy-button").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const code = button.closest(".code-wrap").querySelector("code").innerText;
+        try {
+          await navigator.clipboard.writeText(code);
+          button.textContent = "Copied";
+          setTimeout(() => { button.textContent = "Copy"; }, 1400);
+        } catch {
+          button.textContent = "Select text";
+        }
+      });
+    });
+
+    const navLinks = [...document.querySelectorAll(".chapter-nav a")];
+    const observedSections = navLinks.map((link) => document.querySelector(link.getAttribute("href"))).filter(Boolean);
+    if ("IntersectionObserver" in window) {
+      const observer = new IntersectionObserver((entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        navLinks.forEach((link) => link.setAttribute("aria-current", link.getAttribute("href") === `#${visible.target.id}` ? "location" : "false"));
+      }, { rootMargin: "-20% 0px -65%", threshold: [0, .2, .6] });
+      observedSections.forEach((section) => observer.observe(section));
+    }
+
+    const contentsDetails = document.querySelector('.contents details');
+    if (matchMedia('(max-width:760px)').matches) contentsDetails.open = false;
+    function enhanceTabs(buttons, select) {
+      buttons.forEach((button, index) => {
+        button.tabIndex = button.getAttribute('aria-selected') === 'true' ? 0 : -1;
+        button.addEventListener('click', () => buttons.forEach(item => item.tabIndex = item === button ? 0 : -1));
+        button.addEventListener('keydown', event => {
+          const offsets = {ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1};
+          if (!(event.key in offsets) && event.key !== 'Home' && event.key !== 'End') return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + offsets[event.key] + buttons.length) % buttons.length;
+          select(buttons[next]);
+          buttons.forEach(item => item.tabIndex = item === buttons[next] ? 0 : -1);
+          buttons[next].focus();
+        });
+      });
+    }
+    enhanceTabs(traceButtons, button => button.click());
+    enhanceTabs(layerButtons, selectLayer);
+    const functionSearch = document.querySelector('#function-search');
+    const functionEntries = [...document.querySelectorAll('[data-function]')];
+    function filterFunctions() {
+      const query = functionSearch.value.trim().toLowerCase();
+      let count = 0;
+      functionEntries.forEach(entry => { entry.hidden = !entry.textContent.toLowerCase().includes(query); if (!entry.hidden) count++; });
+      document.querySelectorAll('.function-module').forEach(module => { module.hidden = ![...module.querySelectorAll('[data-function]')].some(entry => !entry.hidden); });
+      document.querySelector('#function-count').textContent = `${count} of ${functionEntries.length} functions` + (count ? '' : '. Try a shorter name or a parameter such as scope_id.');
+      updateProgress();
+    }
+    functionSearch.addEventListener('input', filterFunctions);
+    filterFunctions();
+  </script>
+</body>
+</html>

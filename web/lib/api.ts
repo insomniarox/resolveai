@@ -14,8 +14,8 @@ import type {
   RuntimeFailureCode,
   RuntimeExecutionMetadata,
   RuntimeIncidentBundle,
-} from "@/lib/types";
-import { EVIDENCE_KINDS, EVIDENCE_SOURCES } from "@/lib/types";
+} from "./types";
+import { EVIDENCE_KINDS, EVIDENCE_SOURCES } from "./types";
 
 export const UNEXPECTED_RESPONSE_MESSAGE =
   "ResolveAI returned an unexpected response.";
@@ -80,7 +80,7 @@ function isEvidenceDetails(
   );
 }
 
-function isEvidence(value: unknown): value is Evidence {
+export function isEvidence(value: unknown): value is Evidence {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
@@ -118,7 +118,7 @@ function isRuntimeIncidentBundle(value: unknown): value is RuntimeIncidentBundle
   );
 }
 
-function isRetrievedRunbook(value: unknown): value is RetrievedRunbook {
+export function isRetrievedRunbook(value: unknown): value is RetrievedRunbook {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
@@ -130,7 +130,7 @@ function isRetrievedRunbook(value: unknown): value is RetrievedRunbook {
   );
 }
 
-function isRetrievedKnowledgeDocument(
+export function isRetrievedKnowledgeDocument(
   value: unknown,
 ): value is RetrievedKnowledgeDocument {
   return (

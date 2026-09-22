@@ -1,0 +1,242 @@
+{
+  "$defs": {
+    "EvidenceKind": {
+      "description": "Identify the operational fact represented by an evidence item.",
+      "enum": [
+        "database_connection_timeout",
+        "database_lock_wait",
+        "database_transaction_state",
+        "authentication_certificate_expired",
+        "tls_handshake_validation_failed",
+        "upstream_request_failed",
+        "upstream_health_check",
+        "notification_queue_metrics",
+        "notification_worker_metrics",
+        "http_request_failed",
+        "configuration_change"
+      ],
+      "title": "EvidenceKind",
+      "type": "string"
+    },
+    "EvidenceSource": {
+      "description": "Identify where an evidence item came from.",
+      "enum": [
+        "log",
+        "deployment"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    },
+    "RuntimeEvidenceInput": {
+      "additionalProperties": false,
+      "description": "Describe one normalized observation supplied by the runtime caller.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        },
+        "kind": {
+          "$ref": "#/$defs/EvidenceKind"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "details": {
+          "maxProperties": 20,
+          "patternProperties": {
+            "^[A-Za-z0-9][A-Za-z0-9._-]*$": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            }
+          },
+          "propertyNames": {
+            "maxLength": 64,
+            "minLength": 1
+          },
+          "title": "Details",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "kind",
+        "observed_at",
+        "summary"
+      ],
+      "title": "RuntimeEvidenceInput",
+      "type": "object"
+    },
+    "RuntimeIncidentBundle": {
+      "additionalProperties": false,
+      "description": "Version 1 of the bounded, transient runtime investigation contract.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "incident": {
+          "$ref": "#/$defs/RuntimeIncidentInput"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/RuntimeEvidenceInput"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "knowledge_documents": {
+          "items": {
+            "$ref": "#/$defs/RuntimeKnowledgeDocumentInput"
+          },
+          "maxItems": 5,
+          "title": "Knowledge Documents",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "incident",
+        "evidence"
+      ],
+      "title": "RuntimeIncidentBundle",
+      "type": "object"
+    },
+    "RuntimeIncidentInput": {
+      "additionalProperties": false,
+      "description": "Describe one previously unseen incident in the versioned bundle.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "service": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Service",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "service",
+        "started_at"
+      ],
+      "title": "RuntimeIncidentInput",
+      "type": "object"
+    },
+    "RuntimeKnowledgeDocumentInput": {
+      "additionalProperties": false,
+      "description": "Describe one small text document available only to this request.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "content_type": {
+          "enum": [
+            "text/plain",
+            "text/markdown"
+          ],
+          "title": "Content Type",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "content_type",
+        "content"
+      ],
+      "title": "RuntimeKnowledgeDocumentInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bundle": {
+      "$ref": "#/$defs/RuntimeIncidentBundle"
+    },
+    "candidates": {
+      "items": {
+        "maxLength": 500,
+        "minLength": 3,
+        "type": "string"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "title": "Candidates",
+      "type": "array"
+    }
+  },
+  "required": [
+    "bundle",
+    "candidates"
+  ],
+  "title": "ComparisonInput",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Request body for POST /api/runtime/compare. Server validation additionally checks distinct candidate text, unique evidence/document IDs, timezone offsets, nonblank document content and aggregate document limits. Retrieval and expanded evidence questions must fit the shared 30,000-byte model request budget."
+}

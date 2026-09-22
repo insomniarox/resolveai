@@ -1,0 +1,1247 @@
+[
+  {
+    "id": "checkout-locks",
+    "domain": "Commerce \u00b7 PostgreSQL",
+    "synopsis": "EU checkout error rate rises from 0.2% to 31% while browsing remains healthy. Failures began during a catalog release. Investigators have database session samples, application pool metrics, deployment records, and a separate payment-provider alert. Determine which listed explanation is established for the stalled writes.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-CHECKOUT-LOCKS",
+          "title": "Checkout writes stall during a catalog migration",
+          "description": "EU checkout error rate rises from 0.2% to 31% while browsing remains healthy. Failures began during a catalog release. Investigators have database session samples, application pool metrics, deployment records, and a separate payment-provider alert. Determine which listed explanation is established for the stalled writes.",
+          "service": "checkout-locks-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "CHECKOUT-LOCKS-E01",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:00:00Z",
+            "summary": "Release catalog-2026.09.14 started a transaction containing ALTER TABLE inventory; the migration session has not committed.",
+            "details": {
+              "release": "catalog-2026.09.14",
+              "backend_pid": 8421,
+              "transaction_state": "open"
+            }
+          },
+          {
+            "id": "CHECKOUT-LOCKS-E02",
+            "source": "log",
+            "kind": "database_lock_wait",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "Forty-eight checkout UPDATE inventory statements wait on a relation lock; pg_blocking_pids resolves every sampled waiter to backend 8421.",
+            "details": {
+              "relation": "inventory",
+              "blocked_sessions": 48,
+              "blocking_pid": 8421,
+              "lock_mode": "AccessExclusiveLock"
+            }
+          },
+          {
+            "id": "CHECKOUT-LOCKS-E03",
+            "source": "log",
+            "kind": "database_transaction_state",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "Backend 8421 is idle in transaction after the DDL step and still owns the granted exclusive inventory lock.",
+            "details": {
+              "backend_pid": 8421,
+              "state": "idle in transaction",
+              "transaction_age_seconds": 180
+            }
+          },
+          {
+            "id": "CHECKOUT-LOCKS-E04",
+            "source": "log",
+            "kind": "database_connection_timeout",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Checkout pool acquisition p95 reached 4,900 ms; all 50 connections are checked out and 48 are waiting on the inventory lock.",
+            "details": {
+              "pool_size": 50,
+              "checked_out": 50,
+              "lock_waiters": 48,
+              "acquisition_p95_ms": 4900
+            }
+          },
+          {
+            "id": "CHECKOUT-LOCKS-E05",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Payment authorization probes from the affected checkout pods succeed in 140 ms; failed requests time out before calling payment.",
+            "details": {
+              "endpoint": "payments.internal/authorize",
+              "status_code": 200,
+              "latency_ms": 140
+            }
+          },
+          {
+            "id": "CHECKOUT-LOCKS-E06",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "SELECT 1 and catalog reads finish in under 20 ms on the same primary; storage read latency remains 2 ms.",
+            "details": {
+              "database": "commerce-primary",
+              "read_p95_ms": 18,
+              "storage_read_latency_ms": 2
+            }
+          },
+          {
+            "id": "CHECKOUT-LOCKS-E07",
+            "source": "log",
+            "kind": "http_request_failed",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "A payment-provider dashboard alert concerns the APAC settlement export API, not EU authorizations.",
+            "details": {
+              "region": "apac",
+              "endpoint": "settlement.partner.example/export",
+              "status_code": 503
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "CHECKOUT-LOCKS-DOC1",
+            "title": "Checkout transaction and migration locking",
+            "content_type": "text/markdown",
+            "content": "# Scope\nEU checkout reserves inventory in a short PostgreSQL transaction before payment authorization.\n\n# Lock diagnosis\nALTER TABLE may hold AccessExclusiveLock until its enclosing transaction commits or rolls back. Match waiting statements to the granted lock and blocking PID. An idle-in-transaction migration can keep the lock after its DDL statement completes. Pool acquisition timeouts can be downstream symptoms when existing sessions wait on that lock.\n\n# Review procedure\nInspect pg_stat_activity, pg_locks and pg_blocking_pids at the same timestamp. Confirm the owning release with its operator before considering a rollback. This document does not establish that any current session is a blocker."
+          },
+          {
+            "id": "CHECKOUT-LOCKS-DOC2",
+            "title": "Payment dependencies and database saturation checks",
+            "content_type": "text/markdown",
+            "content": "# Request order\nCheckout performs inventory reservation before calling the EU authorization endpoint. Settlement exports are asynchronous and use a separate APAC integration.\n\n# Distinguishing failures\nPayment outages should leave failed authorization attempts for the affected requests. General database storage saturation should affect independent reads as well as writes. Pool metrics alone do not distinguish traffic growth from blocked transactions. Compare request rate, active statements, wait events and control queries before choosing a cause."
+          }
+        ]
+      },
+      "candidates": [
+        "A catalog migration holds an exclusive lock on inventory, blocking checkout transactions.",
+        "Checkout demand exhausted the database connection pool independently of database locks.",
+        "The payment provider is unavailable and is blocking checkout completion.",
+        "Database storage latency is delaying every query."
+      ]
+    }
+  },
+  {
+    "id": "identity-mtls",
+    "domain": "Identity \u00b7 Certificate rotation",
+    "synopsis": "After a scheduled mTLS certificate rotation, sign-in requests through gateway pool blue return 502 while pool green remains healthy. The client certificate is within its validity window. Compare peer verification logs, certificate fingerprints, trust-bundle rollout state, and identity-service readiness.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-IDENTITY-MTLS",
+          "title": "One gateway pool rejects identity-service TLS",
+          "description": "After a scheduled mTLS certificate rotation, sign-in requests through gateway pool blue return 502 while pool green remains healthy. The client certificate is within its validity window. Compare peer verification logs, certificate fingerprints, trust-bundle rollout state, and identity-service readiness.",
+          "service": "identity-mtls-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "IDENTITY-MTLS-E01",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:00:00Z",
+            "summary": "Identity service rotated its server certificate from issuer Platform-CA-7 to Platform-CA-8; the subject and service DNS name did not change.",
+            "details": {
+              "old_issuer": "Platform-CA-7",
+              "new_issuer": "Platform-CA-8",
+              "serial": "43:89:ab"
+            }
+          },
+          {
+            "id": "IDENTITY-MTLS-E02",
+            "source": "log",
+            "kind": "tls_handshake_validation_failed",
+            "observed_at": "2026-09-14T09:01:00Z",
+            "summary": "Pool blue rejects the new chain with unable to get local issuer certificate; the served leaf is valid from September 1 through December 1, 2026.",
+            "details": {
+              "pool": "blue",
+              "verify_code": 20,
+              "issuer": "Platform-CA-8",
+              "not_after": "2026-12-01T00:00:00Z"
+            }
+          },
+          {
+            "id": "IDENTITY-MTLS-E03",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "The trust rollout controller reports blue on bundle revision 41 containing CA-7 only, and green on revision 42 containing CA-7 and CA-8.",
+            "details": {
+              "blue_revision": 41,
+              "green_revision": 42,
+              "rollout_state": "paused"
+            }
+          },
+          {
+            "id": "IDENTITY-MTLS-E04",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "A probe using revision 42 from a blue gateway succeeds against the same identity IP and server certificate.",
+            "details": {
+              "pool": "blue",
+              "probe_trust_revision": 42,
+              "peer_ip": "10.42.8.16",
+              "status_code": 200
+            }
+          },
+          {
+            "id": "IDENTITY-MTLS-E05",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "Both pools resolve identity.internal to 10.42.8.16; the observed peer fingerprint is identical.",
+            "details": {
+              "dns_name": "identity.internal",
+              "peer_ip": "10.42.8.16",
+              "fingerprint": "sha256:synthetic-identity-4389ab"
+            }
+          },
+          {
+            "id": "IDENTITY-MTLS-E06",
+            "source": "log",
+            "kind": "notification_worker_metrics",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Identity service CPU is 24%, active workers are 18 of 120, and requests from green stay below 90 ms p95.",
+            "details": {
+              "cpu_percent": 24,
+              "active_workers": 18,
+              "worker_limit": 120,
+              "green_p95_ms": 89
+            }
+          },
+          {
+            "id": "IDENTITY-MTLS-E07",
+            "source": "log",
+            "kind": "http_request_failed",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "Blue reports 502 for 96% of sign-in requests; the TLS failure occurs before an HTTP request reaches identity.",
+            "details": {
+              "pool": "blue",
+              "error_percent": 96,
+              "failure_phase": "upstream_tls"
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "IDENTITY-MTLS-DOC1",
+            "title": "mTLS issuer rotation sequence",
+            "content_type": "text/markdown",
+            "content": "# Rotation contract\nDistribute a trust bundle containing both old and new issuers before switching leaf certificates. A leaf validity interval and a trusted issuer are separate checks. Code 20, unable to get local issuer certificate, points to chain construction or issuer trust; it is not the certificate-expired code.\n\n# Comparison\nRecord the served chain, gateway bundle revision and peer IP. A successful control using a different trust bundle against the same peer helps isolate trust configuration. A current deployment manifest is not proof that every gateway loaded that revision."
+          },
+          {
+            "id": "IDENTITY-MTLS-DOC2",
+            "title": "Gateway upstream failure boundaries",
+            "content_type": "text/markdown",
+            "content": "# Sign-in path\nGateways resolve identity.internal, establish mTLS and then send an HTTP request. An upstream TLS handshake failure is reported to clients as 502 and can produce no identity HTTP access log.\n\n# Controls\nCompare blue and green at the same time. Readiness and worker capacity describe application health after TLS. Match fingerprints and resolved addresses to distinguish certificate trust from DNS routing. All certificate names and fingerprints in this exercise are synthetic."
+          }
+        ]
+      },
+      "candidates": [
+        "The identity service leaf certificate has expired.",
+        "Pool blue still uses a trust bundle that lacks the new identity-service certificate issuer.",
+        "Identity-service workers are saturated.",
+        "DNS resolves pool blue requests to the wrong identity endpoint."
+      ]
+    }
+  },
+  {
+    "id": "billing-redelivery",
+    "domain": "Billing \u00b7 Event processing",
+    "synopsis": "Invoice posting latency exceeds 20 minutes after a consumer rollout. Queue depth is growing, CPU is low, and the ledger API reports successful writes. Trace one repeatedly delivered message and compare broker settlement deadlines with application processing time before selecting a cause.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-BILLING-REDELIVERY",
+          "title": "Invoice events accumulate despite idle consumers",
+          "description": "Invoice posting latency exceeds 20 minutes after a consumer rollout. Queue depth is growing, CPU is low, and the ledger API reports successful writes. Trace one repeatedly delivered message and compare broker settlement deadlines with application processing time before selecting a cause.",
+          "service": "billing-redelivery-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "BILLING-REDELIVERY-E01",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:00:00Z",
+            "summary": "Consumer release 7.18 changed the broker acknowledgement deadline from 60 seconds to 5 seconds; worker concurrency remains 40.",
+            "details": {
+              "release": "7.18",
+              "old_deadline_seconds": 60,
+              "new_deadline_seconds": 5,
+              "concurrency": 40
+            }
+          },
+          {
+            "id": "BILLING-REDELIVERY-E02",
+            "source": "log",
+            "kind": "notification_queue_metrics",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "Ready plus in-flight messages increased from 800 to 18,600; broker redelivery rate is 920 per minute against 110 new messages per minute.",
+            "details": {
+              "queue_depth": 18600,
+              "redeliveries_per_minute": 920,
+              "new_messages_per_minute": 110
+            }
+          },
+          {
+            "id": "BILLING-REDELIVERY-E03",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "Ledger writes succeed with p50 8 seconds and p95 12 seconds, matching the preceding week; HTTP error rate remains below 0.1%.",
+            "details": {
+              "endpoint": "ledger.internal/post",
+              "p50_ms": 8000,
+              "p95_ms": 12000,
+              "status_code": 201
+            }
+          },
+          {
+            "id": "BILLING-REDELIVERY-E04",
+            "source": "log",
+            "kind": "http_request_failed",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Message invoice-884 is delivered at 09:03:00, redelivered at 09:03:05, and its first handler receives ACK_DEADLINE_EXCEEDED after ledger success at 09:03:09.",
+            "details": {
+              "message_id": "invoice-884",
+              "attempt": 2,
+              "processing_ms": 9000,
+              "ack_error": "ACK_DEADLINE_EXCEEDED"
+            }
+          },
+          {
+            "id": "BILLING-REDELIVERY-E05",
+            "source": "log",
+            "kind": "notification_worker_metrics",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "All 40 consumers are attached and polling; CPU is 19%, with handlers mostly awaiting ledger I/O.",
+            "details": {
+              "attached_consumers": 40,
+              "cpu_percent": 19,
+              "dominant_state": "awaiting ledger response"
+            }
+          },
+          {
+            "id": "BILLING-REDELIVERY-E06",
+            "source": "log",
+            "kind": "notification_queue_metrics",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "Producer traffic is 108 to 114 unique messages per minute, within its baseline of 100 to 120.",
+            "details": {
+              "baseline_max_per_minute": 120,
+              "current_unique_per_minute": 112
+            }
+          },
+          {
+            "id": "BILLING-REDELIVERY-E07",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "Ledger idempotency records show one posting for invoice-884 and three duplicate-key responses to its later deliveries.",
+            "details": {
+              "message_id": "invoice-884",
+              "unique_postings": 1,
+              "duplicate_attempts": 3
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "BILLING-REDELIVERY-DOC1",
+            "title": "Invoice consumer acknowledgement lifecycle",
+            "content_type": "text/markdown",
+            "content": "# Delivery contract\nThe broker starts an acknowledgement timer when a message is delivered. The consumer acknowledges only after the ledger write completes. If the timer expires first, the broker may redeliver even while the original handler continues. Low worker CPU is compatible with handlers waiting on network I/O.\n\n# Investigation\nCompare processing duration with the effective deadline, not just the desired configuration. Trace delivery, ledger completion and acknowledgement using a stable message ID. Separate unique publication rate from repeated deliveries before attributing backlog to demand."
+          },
+          {
+            "id": "BILLING-REDELIVERY-DOC2",
+            "title": "Ledger idempotency and availability",
+            "content_type": "text/markdown",
+            "content": "# Write behavior\nThe ledger uses invoice ID as its idempotency key. Repeated delivery may produce a duplicate response without a second financial posting. Duplicate-key responses alone do not prove that the broker or ledger is unavailable.\n\n# Normal latency\nThe approved ledger integration normally takes 6 to 12 seconds. Readiness probes are not write latency measurements; inspect actual posting traces. Operators must reconcile posting IDs before replaying a backlog. This scenario requests diagnosis only, not replay execution."
+          }
+        ]
+      },
+      "candidates": [
+        "The ledger API is unavailable.",
+        "The consumer acknowledgement deadline is shorter than normal ledger processing, causing redelivery.",
+        "The queue has no consumers attached.",
+        "A burst of new invoice events exceeds normal consumer capacity."
+      ]
+    }
+  },
+  {
+    "id": "search-routing",
+    "domain": "Search \u00b7 Index aliases",
+    "synopsis": "A regional search import finished successfully, but the public search API still omits products added in the latest feed. Direct index queries, alias metadata, cache-bypass requests and source inventory counts were collected from the same region.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-SEARCH-ROUTING",
+          "title": "Search returns old inventory after a successful import",
+          "description": "A regional search import finished successfully, but the public search API still omits products added in the latest feed. Direct index queries, alias metadata, cache-bypass requests and source inventory counts were collected from the same region.",
+          "service": "search-routing-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "SEARCH-ROUTING-E01",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:00:00Z",
+            "summary": "Import job eu-381 created products-eu-v381 with 1,204,220 documents and reported build complete; alias-switch task failed its compare-and-swap precondition.",
+            "details": {
+              "job": "eu-381",
+              "new_index": "products-eu-v381",
+              "alias_switch": "precondition_failed"
+            }
+          },
+          {
+            "id": "SEARCH-ROUTING-E02",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "Direct queries against v381 return all 20 sampled new product IDs; v380 returns none of them.",
+            "details": {
+              "sample_size": 20,
+              "new_index_matches": 20,
+              "old_index_matches": 0
+            }
+          },
+          {
+            "id": "SEARCH-ROUTING-E03",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "Cluster alias metadata at 09:03 shows products-eu-read resolving only to products-eu-v380.",
+            "details": {
+              "alias": "products-eu-read",
+              "target": "products-eu-v380",
+              "cluster": "eu-search"
+            }
+          },
+          {
+            "id": "SEARCH-ROUTING-E04",
+            "source": "log",
+            "kind": "http_request_failed",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Search API trace for product SKU-8841 queries products-eu-read and resolves to v380; the response has zero hits.",
+            "details": {
+              "product_id": "SKU-8841",
+              "resolved_index": "products-eu-v380",
+              "hits": 0
+            }
+          },
+          {
+            "id": "SEARCH-ROUTING-E05",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "The same request with cache bypass and a unique query key still misses SKU-8841; cache status is BYPASS.",
+            "details": {
+              "cache_status": "BYPASS",
+              "product_id": "SKU-8841",
+              "hits": 0
+            }
+          },
+          {
+            "id": "SEARCH-ROUTING-E06",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "All v381 primary and replica shards are assigned, and direct-query p95 is 42 ms.",
+            "details": {
+              "index": "products-eu-v381",
+              "unassigned_shards": 0,
+              "p95_ms": 42
+            }
+          },
+          {
+            "id": "SEARCH-ROUTING-E07",
+            "source": "log",
+            "kind": "notification_queue_metrics",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "Source feed manifest contains SKU-8841 and its checksum matches the imported object; import retry queue is empty.",
+            "details": {
+              "feed_revision": 381,
+              "checksum_state": "matched",
+              "retry_depth": 0
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "SEARCH-ROUTING-DOC1",
+            "title": "Regional search index publication",
+            "content_type": "text/markdown",
+            "content": "# Two separate completion steps\nAn import builds a versioned index, validates document counts and then atomically switches the regional read alias. Build completion does not imply publication. The API uses products-<region>-read rather than the newest version name. A failed compare-and-swap protects against racing publishers and leaves the old target intact.\n\n# Checks\nInspect live alias metadata and a request trace from the affected region. Compare known product IDs in the old index, new index and source manifest. Do not infer an alias switch from an import success banner."
+          },
+          {
+            "id": "SEARCH-ROUTING-DOC2",
+            "title": "Search cache and shard controls",
+            "content_type": "text/markdown",
+            "content": "# Cache behavior\nA bypass request goes to the search backend and logs the resolved index. If a bypass still queries the old index, response cache eviction cannot publish the new data.\n\n# Shard health\nUnassigned primary shards generally cause shard failures or partial results. Inspect index-specific health and direct requests. Healthy shards do not establish that the public API routes to that index. Record region, alias, index and cache disposition for each observation."
+          }
+        ]
+      },
+      "candidates": [
+        "The upstream inventory feed omitted the new products.",
+        "The regional search API alias still points to the previous index after the new index was built.",
+        "The response cache is serving old results even though the API queries the new index.",
+        "The new index has unavailable shards."
+      ]
+    }
+  },
+  {
+    "id": "shipping-quota",
+    "domain": "Logistics \u00b7 Partner API",
+    "synopsis": "Shipment label creation for merchant north-17 fails while tracking remains healthy. A retry rollout coincides with increased carrier traffic. Determine whether the supplied observations establish invalid credentials, an account quota exhaustion, a carrier-wide outage, or an internal worker backlog.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-SHIPPING-QUOTA",
+          "title": "Label creation fails for one carrier account",
+          "description": "Shipment label creation for merchant north-17 fails while tracking remains healthy. A retry rollout coincides with increased carrier traffic. Determine whether the supplied observations establish invalid credentials, an account quota exhaustion, a carrier-wide outage, or an internal worker backlog.",
+          "service": "shipping-quota-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "SHIPPING-QUOTA-E01",
+            "source": "log",
+            "kind": "upstream_request_failed",
+            "observed_at": "2026-09-14T09:01:00Z",
+            "summary": "Carrier label calls return HTTP 429 with code ACCOUNT_LABEL_QUOTA and Retry-After 900; response identifies account north-17.",
+            "details": {
+              "status_code": 429,
+              "partner_code": "ACCOUNT_LABEL_QUOTA",
+              "retry_after_seconds": 900,
+              "account": "north-17"
+            }
+          },
+          {
+            "id": "SHIPPING-QUOTA-E02",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "The authenticated account endpoint accepts the same credentials and reports daily label allowance 10,000 with remaining 0.",
+            "details": {
+              "status_code": 200,
+              "quota_limit": 10000,
+              "quota_remaining": 0,
+              "account": "north-17"
+            }
+          },
+          {
+            "id": "SHIPPING-QUOTA-E03",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "Shipping release 3.9 changed retry handling to retry every non-2xx response after 1 second, including 429 responses.",
+            "details": {
+              "release": "3.9",
+              "retry_delay_seconds": 1,
+              "retry_statuses": "all non-2xx"
+            }
+          },
+          {
+            "id": "SHIPPING-QUOTA-E04",
+            "source": "log",
+            "kind": "notification_queue_metrics",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "Carrier attempts rose to 1,400 per minute while unique label jobs remain at 90 per minute; repeated attempts use unchanged job IDs.",
+            "details": {
+              "attempts_per_minute": 1400,
+              "unique_jobs_per_minute": 90
+            }
+          },
+          {
+            "id": "SHIPPING-QUOTA-E05",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Another merchant account creates a label through the same endpoint and region with HTTP 201.",
+            "details": {
+              "account": "south-04",
+              "status_code": 201,
+              "endpoint": "carrier.partner.example/labels"
+            }
+          },
+          {
+            "id": "SHIPPING-QUOTA-E06",
+            "source": "log",
+            "kind": "notification_worker_metrics",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "All 24 shipping workers are consuming jobs; broker delivery-to-start delay is 80 ms p95.",
+            "details": {
+              "active_workers": 24,
+              "delivery_to_start_p95_ms": 80
+            }
+          },
+          {
+            "id": "SHIPPING-QUOTA-E07",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "Tracking requests for north-17 return 200; the carrier reports tracking and label creation under separate quotas.",
+            "details": {
+              "endpoint": "carrier.partner.example/tracking",
+              "status_code": 200,
+              "quota_group": "tracking"
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "SHIPPING-QUOTA-DOC1",
+            "title": "Carrier account quotas and response codes",
+            "content_type": "text/markdown",
+            "content": "# Endpoint contracts\nLabel creation has an account-specific daily allowance. ACCOUNT_LABEL_QUOTA on a 429 response identifies that allowance; the authenticated account endpoint exposes the remaining budget. Tracking uses a separate quota. Invalid authentication normally returns 401 with a credential-specific code, but a single quota response alone does not prove every credential path is healthy.\n\n# Evidence\nCorrelate the account, label endpoint and quota window. A successful request from another account checks shared endpoint availability but not the affected account quota."
+          },
+          {
+            "id": "SHIPPING-QUOTA-DOC2",
+            "title": "Shipping retries and backlog interpretation",
+            "content_type": "text/markdown",
+            "content": "# Retry policy\nRespect Retry-After for quota responses. Retrying a denied label request does not replenish account allowance and can amplify outbound traffic. Distinguish unique label jobs, delivery attempts and completed labels.\n\n# Worker controls\nMeasure broker delivery-to-start delay separately from partner completion time. Attached, actively consuming workers can still produce a growing backlog when downstream requests are denied. Request a human review before replaying any label job to avoid duplicate purchases."
+          }
+        ]
+      },
+      "candidates": [
+        "The carrier API credentials for north-17 are invalid.",
+        "The carrier label endpoint is unavailable for every account.",
+        "Account north-17 has exhausted its label-creation quota, with retries adding traffic.",
+        "Internal shipping workers are not consuming label requests."
+      ]
+    }
+  },
+  {
+    "id": "warehouse-dns",
+    "domain": "Warehouse \u00b7 Private networking",
+    "synopsis": "Following a namespace network-policy update, newly started packing pods fail stock reservations. Existing pods with cached DNS answers still work. Direct-IP connectivity, resolver traffic and stock-service readiness are available for comparison.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-WAREHOUSE-DNS",
+          "title": "New packing pods cannot resolve the stock API",
+          "description": "Following a namespace network-policy update, newly started packing pods fail stock reservations. Existing pods with cached DNS answers still work. Direct-IP connectivity, resolver traffic and stock-service readiness are available for comparison.",
+          "service": "warehouse-dns-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "WAREHOUSE-DNS-E01",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:00:00Z",
+            "summary": "Policy packing-egress revision 19 replaced allow-all with TCP 443 access to stock-service only; it has no UDP or TCP port 53 rule.",
+            "details": {
+              "namespace": "packing",
+              "revision": 19,
+              "allowed_ports": "TCP/443",
+              "dns_rule": "absent"
+            }
+          },
+          {
+            "id": "WAREHOUSE-DNS-E02",
+            "source": "log",
+            "kind": "upstream_request_failed",
+            "observed_at": "2026-09-14T09:01:00Z",
+            "summary": "New packing pods fail getaddrinfo for stock.warehouse.svc.cluster.local before creating a TCP connection.",
+            "details": {
+              "hostname": "stock.warehouse.svc.cluster.local",
+              "error": "EAI_AGAIN",
+              "phase": "dns"
+            }
+          },
+          {
+            "id": "WAREHOUSE-DNS-E03",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "A resolver query from an affected pod times out; policy flow logs record dropped UDP packets to kube-dns on port 53.",
+            "details": {
+              "destination": "kube-dns",
+              "destination_port": 53,
+              "protocol": "UDP",
+              "policy_action": "drop"
+            }
+          },
+          {
+            "id": "WAREHOUSE-DNS-E04",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "A direct-IP probe preserving stock.warehouse.svc.cluster.local as TLS SNI succeeds from the affected pod.",
+            "details": {
+              "peer_ip": "10.96.24.18",
+              "tls_sni": "stock.warehouse.svc.cluster.local",
+              "status_code": 200
+            }
+          },
+          {
+            "id": "WAREHOUSE-DNS-E05",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "A control namespace resolves the configured stock hostname to 10.96.24.18; its authenticated reservation probe succeeds.",
+            "details": {
+              "namespace": "warehouse-control",
+              "resolved_ip": "10.96.24.18",
+              "status_code": 201
+            }
+          },
+          {
+            "id": "WAREHOUSE-DNS-E06",
+            "source": "log",
+            "kind": "notification_worker_metrics",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "Stock-service readiness is healthy with 12 of 12 replicas; request p95 is 65 ms for callers that resolve the address.",
+            "details": {
+              "ready_replicas": 12,
+              "desired_replicas": 12,
+              "p95_ms": 65
+            }
+          },
+          {
+            "id": "WAREHOUSE-DNS-E07",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "Old packing pods log cached DNS answers expiring at 09:10; the deployment environment uses the same hostname as before revision 19.",
+            "details": {
+              "dns_cache_expires_at": "2026-09-14T09:10:00Z",
+              "hostname_changed": "no"
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "WAREHOUSE-DNS-DOC1",
+            "title": "Packing namespace egress dependencies",
+            "content_type": "text/markdown",
+            "content": "# Required paths\nPacking workers resolve the stock-service name through kube-dns before opening TLS connections. Restrictive egress policies must account for DNS as well as application traffic. Both UDP and TCP DNS may be needed. Cached answers can temporarily hide a DNS egress fault.\n\n# Verification\nCompare resolver probes with flow logs from the affected namespace. A direct-IP control must preserve the intended hostname for SNI and certificate validation. An address override used for diagnosis is not a deployment recommendation."
+          },
+          {
+            "id": "WAREHOUSE-DNS-DOC2",
+            "title": "Stock reservation request phases",
+            "content_type": "text/markdown",
+            "content": "# Phase separation\nDNS resolution precedes TCP connection, TLS validation and authenticated reservation. A name-resolution failure provides no direct measurement of stock API health.\n\n# Controls\nUse a control namespace and a known hostname to distinguish an invalid name from blocked resolver access. Readiness reports availability at the service, while source-specific network rules can still prevent callers from reaching it. Match policy revisions to affected pod labels and timestamps."
+          }
+        ]
+      },
+      "candidates": [
+        "The stock reservation API is down.",
+        "A network-policy change blocks DNS egress from packing pods to the cluster resolver.",
+        "The stock-service certificate expired.",
+        "The packing deployment uses an incorrect stock-service hostname."
+      ]
+    }
+  },
+  {
+    "id": "analytics-pool",
+    "domain": "Analytics \u00b7 Database connections",
+    "synopsis": "A dashboard API scales from 8 to 32 replicas and begins failing database connection acquisition. Query execution remains fast when a connection is obtained. Examine aggregate client limits, database admission logs, lock checks and workload volume.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-ANALYTICS-POOL",
+          "title": "Dashboard requests queue after a replica scale-out",
+          "description": "A dashboard API scales from 8 to 32 replicas and begins failing database connection acquisition. Query execution remains fast when a connection is obtained. Examine aggregate client limits, database admission logs, lock checks and workload volume.",
+          "service": "analytics-pool-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "ANALYTICS-POOL-E01",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:00:00Z",
+            "summary": "Autoscaler increased dashboard-api replicas from 8 to 32; each process eagerly opens a minimum pool of 20 connections.",
+            "details": {
+              "old_replicas": 8,
+              "new_replicas": 32,
+              "pool_min_per_replica": 20,
+              "pool_max_per_replica": 20
+            }
+          },
+          {
+            "id": "ANALYTICS-POOL-E02",
+            "source": "log",
+            "kind": "database_connection_timeout",
+            "observed_at": "2026-09-14T09:01:00Z",
+            "summary": "Database logs reject new dashboard connections with too many connections; 400 sessions are open, including reserved administrative sessions.",
+            "details": {
+              "open_sessions": 400,
+              "max_connections": 400,
+              "error": "too many connections"
+            }
+          },
+          {
+            "id": "ANALYTICS-POOL-E03",
+            "source": "log",
+            "kind": "database_transaction_state",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "Connection inventory shows 370 idle dashboard sessions and 18 other application sessions; most new pods have not completed pool initialization.",
+            "details": {
+              "dashboard_idle": 370,
+              "other_application_sessions": 18,
+              "new_pod_state": "pool initialization pending"
+            }
+          },
+          {
+            "id": "ANALYTICS-POOL-E04",
+            "source": "log",
+            "kind": "database_lock_wait",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "The affected database has no blocked dashboard sessions; oldest active dashboard query is 180 ms.",
+            "details": {
+              "blocked_dashboard_sessions": 0,
+              "oldest_query_ms": 180
+            }
+          },
+          {
+            "id": "ANALYTICS-POOL-E05",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Established connections execute the standard dashboard query in 95 ms p95, consistent with the pre-scale baseline.",
+            "details": {
+              "baseline_p95_ms": 100,
+              "current_p95_ms": 95
+            }
+          },
+          {
+            "id": "ANALYTICS-POOL-E06",
+            "source": "log",
+            "kind": "notification_worker_metrics",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "Database CPU is 27% and dashboard request volume is 210 per second versus 205 before scale-out.",
+            "details": {
+              "database_cpu_percent": 27,
+              "current_rps": 210,
+              "baseline_rps": 205
+            }
+          },
+          {
+            "id": "ANALYTICS-POOL-E07",
+            "source": "log",
+            "kind": "http_request_failed",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "New dashboard pods report startup pool timeouts; existing pods continue serving the same query successfully.",
+            "details": {
+              "affected_group": "new replicas",
+              "pool_timeout_ms": 5000,
+              "existing_pods": "serving"
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "ANALYTICS-POOL-DOC1",
+            "title": "Dashboard database connection budget",
+            "content_type": "text/markdown",
+            "content": "# Capacity accounting\nApplication pools are per process. Multiply the number of replicas by the configured pool minimum and maximum, then include batch jobs and reserved administrative capacity. The database connection ceiling can be exhausted by idle sessions even with low CPU and fast queries.\n\n# Diagnosis\nCheck server admission errors and session ownership before tuning queries. A client pool timeout can mean the client cannot establish its pool, or that established connections are busy. Database session state separates these paths."
+          },
+          {
+            "id": "ANALYTICS-POOL-DOC2",
+            "title": "Dashboard scale-out controls",
+            "content_type": "text/markdown",
+            "content": "# Deployment behavior\nEach dashboard process initializes its minimum pool during startup. Scaling pods does not automatically resize database admission limits. Existing pods may keep working while new ones fail to acquire initial connections.\n\n# Alternative checks\nInspect blocked-session counts for locking, execution time for query regressions, and request volume plus CPU for demand saturation. These controls must cover the same database and time window. No pool or server settings should be changed automatically from this comparison."
+          }
+        ]
+      },
+      "candidates": [
+        "A long-running transaction is blocking dashboard queries.",
+        "The database is refusing connections because aggregate application pools exceed its connection budget.",
+        "Database query plans regressed after a schema change.",
+        "A dashboard traffic spike is saturating CPU."
+      ]
+    }
+  },
+  {
+    "id": "media-signatures",
+    "domain": "Media \u00b7 Object storage",
+    "synopsis": "Newly issued upload URLs fail in the west region while identical clients succeed in east. The rollout included both a signing-key refresh and a node-image update. Inspect storage error codes, signing time, independent clock measurements and key identifiers.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-MEDIA-SIGNATURES",
+          "title": "Only one region rejects fresh upload URLs",
+          "description": "Newly issued upload URLs fail in the west region while identical clients succeed in east. The rollout included both a signing-key refresh and a node-image update. Inspect storage error codes, signing time, independent clock measurements and key identifiers.",
+          "service": "media-signatures-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "MEDIA-SIGNATURES-E01",
+            "source": "log",
+            "kind": "upstream_request_failed",
+            "observed_at": "2026-09-14T09:01:00Z",
+            "summary": "West object-store uploads return HTTP 403 with RequestTimeTooSkewed; the error includes request time 09:12 and server time 09:01.",
+            "details": {
+              "status_code": 403,
+              "error_code": "RequestTimeTooSkewed",
+              "request_time": "2026-09-14T09:12:00Z",
+              "server_time": "2026-09-14T09:01:00Z"
+            }
+          },
+          {
+            "id": "MEDIA-SIGNATURES-E02",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "Independent node monitoring measures west signer wall clocks 660 seconds ahead of the time authority; east offset is under 1 second.",
+            "details": {
+              "west_offset_seconds": 660,
+              "east_offset_ms": 420,
+              "measurement_source": "external time monitor"
+            }
+          },
+          {
+            "id": "MEDIA-SIGNATURES-E03",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "The new west node image has its time synchronization unit disabled; signing-key refresh deployed key version 28 in both regions.",
+            "details": {
+              "image": "signer-node-2026.09",
+              "time_sync": "disabled",
+              "key_version": 28
+            }
+          },
+          {
+            "id": "MEDIA-SIGNATURES-E04",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "A URL signed by east with key version 28 uploads the same 12 KB object to the west bucket successfully.",
+            "details": {
+              "signer_region": "east",
+              "bucket_region": "west",
+              "key_version": 28,
+              "object_bytes": 12288,
+              "status_code": 200
+            }
+          },
+          {
+            "id": "MEDIA-SIGNATURES-E05",
+            "source": "log",
+            "kind": "http_request_failed",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "A fresh west URL fails within two seconds of receipt, and its signed timestamp is already eleven minutes ahead of the client clock.",
+            "details": {
+              "url_age_seconds": 2,
+              "signed_time_offset_seconds": 660,
+              "object_bytes": 12288
+            }
+          },
+          {
+            "id": "MEDIA-SIGNATURES-E06",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "Unsigned storage health and authenticated metadata probes to the west endpoint succeed.",
+            "details": {
+              "endpoint": "objects-west.internal",
+              "status_code": 200
+            }
+          },
+          {
+            "id": "MEDIA-SIGNATURES-E07",
+            "source": "log",
+            "kind": "notification_queue_metrics",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "Upload failure sizes range from 2 KB to 800 KB, all below the 20 MB application limit.",
+            "details": {
+              "minimum_failed_bytes": 2048,
+              "maximum_failed_bytes": 819200,
+              "limit_bytes": 20971520
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "MEDIA-SIGNATURES-DOC1",
+            "title": "Upload signature time validation",
+            "content_type": "text/markdown",
+            "content": "# Signing contract\nUpload URLs include a timestamp produced by the signer, key identifier and bounded validity period. The object store rejects request timestamps more than five minutes away from its clock, independently of the URL lifetime. RequestTimeTooSkewed identifies the timestamp check; it differs from invalid-key and size-limit responses.\n\n# Controls\nCompare signer time with an independent authority. Application logs from a skewed node cannot by themselves establish elapsed time. Correlate traces using external collection timestamps."
+          },
+          {
+            "id": "MEDIA-SIGNATURES-DOC2",
+            "title": "Cross-region upload isolation",
+            "content_type": "text/markdown",
+            "content": "# Shared key rollout\nBoth signer regions use the same approved key version. A control signed in east can target the west bucket, allowing separate checks of signing, storage availability and body size.\n\n# Evidence collection\nRecord key version, signer region, target region, body size and storage error code. Never include actual signing secrets or active presigned URLs in an incident package. All endpoints in this package are fictional; observations use collector-normalized UTC timestamps."
+          }
+        ]
+      },
+      "candidates": [
+        "The west upload signer has clock skew beyond the object-store acceptance window.",
+        "The refreshed signing key is invalid in both regions.",
+        "Object storage is unavailable in west.",
+        "Client upload bodies exceed the configured object-size limit."
+      ]
+    }
+  },
+  {
+    "id": "notifications-canary",
+    "domain": "Messaging \u00b7 Configuration rollout",
+    "synopsis": "Push-notification delivery drops only on canary workers after a configuration release. The partner remains healthy with normal latency. Compare canary and stable request deadlines, correlated traces, queue assignment and partner responses.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-NOTIFICATIONS-CANARY",
+          "title": "Notification canary times out on a healthy partner",
+          "description": "Push-notification delivery drops only on canary workers after a configuration release. The partner remains healthy with normal latency. Compare canary and stable request deadlines, correlated traces, queue assignment and partner responses.",
+          "service": "notifications-canary-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "NOTIFICATIONS-CANARY-E01",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:00:00Z",
+            "summary": "Canary release notify-62 applied outbound_timeout_ms=100 while stable workers retain 3000; both use the same partner endpoint and account.",
+            "details": {
+              "release": "notify-62",
+              "canary_timeout_ms": 100,
+              "stable_timeout_ms": 3000,
+              "account": "notify-main"
+            }
+          },
+          {
+            "id": "NOTIFICATIONS-CANARY-E02",
+            "source": "log",
+            "kind": "upstream_request_failed",
+            "observed_at": "2026-09-14T09:01:00Z",
+            "summary": "Canary push attempts fail with client deadline exceeded after 100 to 103 ms; no HTTP status is received.",
+            "details": {
+              "worker_group": "canary",
+              "elapsed_p50_ms": 101,
+              "error": "client deadline exceeded"
+            }
+          },
+          {
+            "id": "NOTIFICATIONS-CANARY-E03",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "Stable worker requests to the same endpoint succeed in 280 ms p50 and 410 ms p95.",
+            "details": {
+              "worker_group": "stable",
+              "status_code": 202,
+              "p50_ms": 280,
+              "p95_ms": 410
+            }
+          },
+          {
+            "id": "NOTIFICATIONS-CANARY-E04",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "Partner trace for canary request req-772 records acceptance at 305 ms, after the client has closed its connection.",
+            "details": {
+              "request_id": "req-772",
+              "partner_status": 202,
+              "partner_elapsed_ms": 305,
+              "client_closed_at_ms": 101
+            }
+          },
+          {
+            "id": "NOTIFICATIONS-CANARY-E05",
+            "source": "log",
+            "kind": "notification_worker_metrics",
+            "observed_at": "2026-09-14T09:04:00Z",
+            "summary": "Canary workers consume 20% of jobs as configured and have 12 active workers; CPU is 22%.",
+            "details": {
+              "worker_group": "canary",
+              "job_share_percent": 20,
+              "active_workers": 12,
+              "cpu_percent": 22
+            }
+          },
+          {
+            "id": "NOTIFICATIONS-CANARY-E06",
+            "source": "log",
+            "kind": "notification_queue_metrics",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "Retries are concentrated on canary-owned jobs; unique inbound notification rate remains 600 per minute.",
+            "details": {
+              "retry_group": "canary",
+              "unique_inbound_per_minute": 600,
+              "baseline_per_minute": 600
+            }
+          },
+          {
+            "id": "NOTIFICATIONS-CANARY-E07",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "Partner account status reports 73,000 remaining daily requests; stable responses contain no quota errors.",
+            "details": {
+              "account": "notify-main",
+              "remaining_daily_requests": 73000,
+              "quota_errors": 0
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "NOTIFICATIONS-CANARY-DOC1",
+            "title": "Notification request deadlines and delivery state",
+            "content_type": "text/markdown",
+            "content": "# Client deadline\nThe outbound timeout covers waiting for the partner response. A client timeout does not prove the partner rejected the operation. The partner may accept a message after the client disconnects. The ordinary response window is 200 to 500 ms, and stable workers allow three seconds.\n\n# Correlation\nMatch request IDs across client and partner traces and compare effective configuration across rollout groups. A general queue-depth alert cannot identify which group or dependency is responsible."
+          },
+          {
+            "id": "NOTIFICATIONS-CANARY-DOC2",
+            "title": "Notification canary and replay controls",
+            "content_type": "text/markdown",
+            "content": "# Assignment\nThe canary receives a fixed 20% share of jobs. Stable and canary use the same account and endpoint, making concurrent stable traffic a useful control. Check actual assignment counters rather than inferring worker health from CPU.\n\n# Duplicate risk\nA timeout followed by retry may create duplicate deliveries if the partner already accepted the first call. Human operators must reconcile partner receipt IDs before replay. This document explains the mechanism and does not establish the outcome of any unobserved request."
+          }
+        ]
+      },
+      "candidates": [
+        "The partner push endpoint is unavailable.",
+        "The canary rollout reduced the outbound deadline below normal partner latency.",
+        "The notification queue is assigning no jobs to canary workers.",
+        "Stable workers have exhausted partner account quota."
+      ]
+    }
+  },
+  {
+    "id": "auth-ambiguous",
+    "domain": "Access \u00b7 Incomplete telemetry",
+    "synopsis": "Login failures briefly rise across two tenants after a gateway rollout. The available telemetry includes a generic 502 counter, a failed TLS probe to an unrelated admin host, conflicting configuration reports, and later healthy probes. There is no per-request upstream error or peer certificate capture for the failure window. Assess only what these records establish.",
+    "request": {
+      "bundle": {
+        "schema_version": 1,
+        "incident": {
+          "id": "INC-AUTH-AMBIGUOUS",
+          "title": "Intermittent login failures without a discriminating trace",
+          "description": "Login failures briefly rise across two tenants after a gateway rollout. The available telemetry includes a generic 502 counter, a failed TLS probe to an unrelated admin host, conflicting configuration reports, and later healthy probes. There is no per-request upstream error or peer certificate capture for the failure window. Assess only what these records establish.",
+          "service": "auth-ambiguous-service",
+          "started_at": "2026-09-14T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "AUTH-AMBIGUOUS-E01",
+            "source": "log",
+            "kind": "http_request_failed",
+            "observed_at": "2026-09-14T09:01:00Z",
+            "summary": "Gateway aggregate metrics show 8% HTTP 502 between 09:00 and 09:02, without upstream error codes or request traces.",
+            "details": {
+              "status_code": 502,
+              "error_percent": 8,
+              "window_end": "2026-09-14T09:02:00Z",
+              "trace_sampling": "disabled"
+            }
+          },
+          {
+            "id": "AUTH-AMBIGUOUS-E02",
+            "source": "log",
+            "kind": "authentication_certificate_expired",
+            "observed_at": "2026-09-14T09:02:00Z",
+            "summary": "A scheduled probe reports an expired certificate on admin.identity.example; login uses auth.identity.example and its served chain was not captured.",
+            "details": {
+              "probed_host": "admin.identity.example",
+              "affected_host": "auth.identity.example",
+              "certificate_capture": "admin endpoint only"
+            }
+          },
+          {
+            "id": "AUTH-AMBIGUOUS-E03",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "The rollout controller reports gateway revision 62 desired at 09:01; it has no acknowledgement from the affected pods.",
+            "details": {
+              "desired_revision": 62,
+              "observed_pod_revision": "unknown",
+              "acknowledgement": "missing"
+            }
+          },
+          {
+            "id": "AUTH-AMBIGUOUS-E04",
+            "source": "deployment",
+            "kind": "configuration_change",
+            "observed_at": "2026-09-14T09:03:00Z",
+            "summary": "A metrics exporter reports revision 61 for the gateway pool, but its sample timestamp is 08:57 before the rollout.",
+            "details": {
+              "reported_revision": 61,
+              "sample_time": "2026-09-14T08:57:00Z",
+              "collector_time": "2026-09-14T09:03:00Z"
+            }
+          },
+          {
+            "id": "AUTH-AMBIGUOUS-E05",
+            "source": "log",
+            "kind": "upstream_health_check",
+            "observed_at": "2026-09-14T09:05:00Z",
+            "summary": "A login probe at 09:05 succeeds; its TLS and DNS checks are healthy, after the observed error window ended.",
+            "details": {
+              "endpoint": "auth.identity.example/login",
+              "status_code": 200,
+              "dns_state": "healthy",
+              "tls_state": "healthy"
+            }
+          },
+          {
+            "id": "AUTH-AMBIGUOUS-E06",
+            "source": "log",
+            "kind": "notification_queue_metrics",
+            "observed_at": "2026-09-14T09:06:00Z",
+            "summary": "The identity-provider status page reports a quota investigation for tenant amber; affected requests were not tagged with tenant identifiers.",
+            "details": {
+              "provider_tenant": "amber",
+              "affected_request_tenant": "not recorded",
+              "status": "investigating"
+            }
+          },
+          {
+            "id": "AUTH-AMBIGUOUS-E07",
+            "source": "log",
+            "kind": "notification_worker_metrics",
+            "observed_at": "2026-09-14T09:07:00Z",
+            "summary": "Gateway CPU stayed below 40%, but no resolver logs or effective timeout values were retained for the affected pods.",
+            "details": {
+              "max_cpu_percent": 39,
+              "resolver_logs": "unavailable",
+              "effective_timeout": "unavailable"
+            }
+          }
+        ],
+        "knowledge_documents": [
+          {
+            "id": "AUTH-AMBIGUOUS-DOC1",
+            "title": "Login failure attribution boundaries",
+            "content_type": "text/markdown",
+            "content": "# Generic gateway responses\nA 502 can result from name resolution, connection, TLS, protocol or upstream response failures. The aggregate status code cannot distinguish these mechanisms. Match endpoint, tenant and time window before using a probe or provider notice as causal evidence.\n\n# Certificate scope\nAdmin and login endpoints may serve different certificate chains. An expired admin certificate does not establish the login certificate state. A later healthy login probe does not reconstruct its earlier state."
+          },
+          {
+            "id": "AUTH-AMBIGUOUS-DOC2",
+            "title": "Configuration provenance during a rollout",
+            "content_type": "text/markdown",
+            "content": "# Desired versus observed\nA desired revision indicates controller intent. A timestamped acknowledgement or effective configuration capture is needed to establish the revision used by a particular pod. Old exporter samples and new desired state may coexist without either describing the actual failure window.\n\n# Missing records\nWhen request traces, peer chains and effective configuration are absent, several explanations may remain possible. Reference descriptions explain what to inspect; they do not replace missing incident observations. Preserve uncertainty rather than choosing a cause from rollout timing alone."
+          }
+        ]
+      },
+      "candidates": [
+        "The login endpoint served an expired certificate during the failure window.",
+        "The gateway rollout applied an incorrect login upstream timeout.",
+        "The identity provider rejected requests because its tenant quota was exhausted.",
+        "A gateway DNS failure prevented login endpoint resolution."
+      ]
+    }
+  }
+]
