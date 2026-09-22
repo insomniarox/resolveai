@@ -20,6 +20,8 @@ export interface DecisionCall {
     input_tokens?: number | null;
     output_tokens?: number | null;
     reported_cost_usd?: number | null;
+    estimated_cost_usd?: number | null;
+    cost_basis?: string | null;
   };
   answers: Record<string, string>;
   confidence: Record<string, number>;
@@ -98,6 +100,9 @@ function call(v: unknown): v is DecisionCall {
     (v.usage.output_tokens == null || integer(v.usage.output_tokens)) &&
     (v.usage.reported_cost_usd == null ||
       nonnegative(v.usage.reported_cost_usd)) &&
+    (v.usage.estimated_cost_usd == null ||
+      nonnegative(v.usage.estimated_cost_usd)) &&
+    (v.usage.cost_basis == null || text(v.usage.cost_basis)) &&
     record(v.answers) &&
     Object.values(v.answers).every(text) &&
     record(v.confidence) &&

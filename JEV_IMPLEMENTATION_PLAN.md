@@ -132,3 +132,23 @@ These are outside the completed bounded feature, not hidden implementation gaps.
    lock consistency, Ruff lint/format, diff whitespace, and Compose configuration.
    Frontend and browser verification is recorded above. Deployment remains a
    separate step; no deployment has been performed.
+
+## Runbook and measurement follow-up, 2026-09-22
+
+The comparison page now has a persistent official runbook library, Markdown/text
+uploads, full names and counts, and a separate retrieved subset. Six added seeds
+bring the example library to 15. Explicit uploads change the shared retrieval
+corpus; historical nine-runbook evaluation scores remain historical.
+
+Comparison protocol v2 tags references and gives applicable official procedures
+precedence over supplemental attachments, without overriding observations or
+assigning numeric weights. The ordinary runtime prompt is also v2. Jev cost is
+estimated separately from reported billing using the documented input-token rate.
+Cards split input/output usage and optionally match an operator reference answer
+kept out of model inputs. No aggregate accuracy claim is made.
+
+Validation: 141 backend tests and 15 frontend tests passed, along with Ruff,
+ESLint, TypeScript and the production build. PostgreSQL integration tests, browser
+smoke testing and live model calls were not run, per the requested handoff.
+Existing databases need the seed SQL reapplied and missing embeddings populated.
+See README and both study documents for behavior, limits and setup.

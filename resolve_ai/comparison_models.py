@@ -31,6 +31,8 @@ class DecisionUsage(BaseModel):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     reported_cost_usd: float | None = Field(default=None, ge=0)
+    estimated_cost_usd: float | None = Field(default=None, ge=0)
+    cost_basis: str | None = None
 
 
 class DecisionCall(BaseModel):

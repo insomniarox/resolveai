@@ -157,6 +157,73 @@ VALUES
         'measures dequeue and submission, not delivery-receipt completion. The '
         'provider gateway health check tests message admission only and does not '
         'test post-acceptance delivery or receipt callbacks.'
+    ),
+    (
+        'RUN-010',
+        'Invoice signing receipt callbacks and completion states',
+        'invoice-service',
+        'Invoice uploads accepted by a signing provider are not complete until a '
+        'signed receipt callback arrives. Check receipt age, callback delivery '
+        'status and endpoint errors alongside successful upload responses. '
+        'Healthy uploads do not demonstrate callback availability. Confirm '
+        'provider callback recovery before replaying receipt events; deduplicate '
+        'replayed events by receipt ID.'
+    ),
+    (
+        'RUN-011',
+        'Checkout lock waits after a migration',
+        'checkout-service',
+        'When checkout requests block during a database migration, inspect lock '
+        'wait chains and the transaction holding the contested table or row '
+        'locks. Compare migration start time with the first wait and inspect '
+        'whether the migration transaction remains open. Pool exhaustion can be a'
+        ' downstream symptom of blocked transactions. Obtain approval before '
+        'canceling a migration or terminating its transaction.'
+    ),
+    (
+        'RUN-012',
+        'DNS resolution failures and stale service records',
+        'platform-service',
+        'For connection failures before any TCP handshake, inspect resolver '
+        'errors, DNS response codes, record TTLs and the resolved address from '
+        'the affected workload. Compare with the intended service endpoint and a '
+        'working resolver. A healthy destination does not exclude a DNS failure. '
+        'Correct the authoritative record or resolver configuration through the '
+        'approved change process, then verify resolution from affected workloads.'
+    ),
+    (
+        'RUN-013',
+        'API rate limits and retry amplification',
+        'api-gateway',
+        'For HTTP 429 responses, inspect the rate-limit scope, Retry-After '
+        'headers, request volume and retry frequency. Separate upstream '
+        'throttling from local worker saturation using response codes and queue '
+        'timings. Apply bounded exponential backoff with jitter and honor Retry-'
+        'After. Coordinate quota changes with the service owner; do not retry all'
+        ' queued requests simultaneously.'
+    ),
+    (
+        'RUN-014',
+        'Disk exhaustion and failed application writes',
+        'storage-service',
+        'For failed writes, inspect filesystem free bytes, free inodes, mount '
+        'state and the exact write error. ENOSPC can indicate exhausted blocks or'
+        ' inodes; a read-only mount is a different failure. Correlate application'
+        ' errors with the affected volume. Follow retention policy before '
+        'removing data and obtain approval for capacity changes. Confirm '
+        'successful writes after remediation.'
+    ),
+    (
+        'RUN-015',
+        'Deployment memory limits and container restarts',
+        'platform-service',
+        'For repeated container restarts, inspect termination reason, exit '
+        'status, memory usage, configured memory limit and deployment changes. '
+        'OOMKilled with memory at the limit supports memory exhaustion; a restart'
+        ' count alone does not. Distinguish a lower limit from increasing '
+        'application memory usage. Roll back an incorrect limit through the '
+        'approved process and investigate leaks before increasing capacity '
+        'indefinitely.'
     )
 ON CONFLICT (id) DO UPDATE
 SET

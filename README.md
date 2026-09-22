@@ -59,7 +59,7 @@ prepared fixture or runtime JSON
 build deterministic retrieval query
              |
              v
-semantic Top-3 frozen runbooks
+semantic Top-3 stored runbooks
 and optional scoped runtime documents
              |
              v
@@ -111,7 +111,7 @@ construct a `Diagnosis`.
 | Data | Location | Lifetime |
 |---|---|---|
 | Prepared incidents, logs, and deployments | Python fixtures | Process lifetime |
-| Frozen runbooks and embeddings | PostgreSQL | Durable benchmark corpus |
+| Official runbooks and embeddings | PostgreSQL | Durable shared procedure library |
 | Runtime knowledge documents | PostgreSQL scope | Deleted after the request, with a 15-minute expiry fallback |
 | Transient runtime input and result | Not stored | Request lifetime |
 | Explicitly saved run | PostgreSQL JSONB snapshot | One hour |
@@ -249,7 +249,9 @@ The code-study guide explains why this reading order is better than starting at
 ## Evaluation
 
 The repository keeps product behavior and frozen evaluation data separate.
-Runtime input never enters the fixture set or the nine-runbook corpus.
+Incident attachments never enter the fixture set or the official runbook library.
+Explicit runbook uploads and seed updates change the shared retrieval corpus;
+historical results below used the original nine runbooks.
 
 The main measured results are:
 
@@ -435,8 +437,8 @@ large comparisons before provider calls; shorten evidence or documents if needed
 This extra limit does not change the ordinary runtime bundle limits.
 
 Results show independent outcomes, a shared timing chart, reported tokens and
-cost where available, evidence alignment, and a downloadable JSON report. Runtime
-accuracy is explicitly not assessed. Jev Choice confidence describes concentration
+cost where available, evidence alignment, and a downloadable JSON report. An optional reference answer enables a single-case match check; aggregate
+accuracy is not assessed. Jev Choice confidence describes concentration
 among choices, not diagnosis accuracy. Reference material never becomes an
 Evidence citation. Any contradictory observation or absence of supporting
 observations leaves the assessment inconclusive.
@@ -457,3 +459,67 @@ Comparison results are transient; existing saved-run behavior is unchanged.
 The harder evaluation and production-regression results are in
 [evals/jev_pressure_report.md](evals/jev_pressure_report.md). The implementation
 checklist and deferred work are in [JEV_IMPLEMENTATION_PLAN.md](JEV_IMPLEMENTATION_PLAN.md).
+
+## Official runbooks and comparison measurements
+
+The comparison page lists the complete official runbook library, including names,
+services, total count and embedding readiness. Expand an entry to read its content.
+The seed library now contains 15 synthetic examples. RUN-010 through RUN-015 cover
+invoice receipt callbacks, checkout migration locks, DNS failures, API throttling,
+disk exhaustion and container memory limits. These examples are not actual company policy.
+
+Use **Add an official runbook** to upload UTF-8 `.md`, `.markdown` or `.txt`, or
+paste a procedure. Supply its title and service. The limit is 6,000 characters;
+the browser also limits files to 24 KB. Submitting designates the document as
+official guidance for this workspace. `POST /runbooks` accepts JSON with `title`,
+`service` and `content`, embeds it before insertion and returns the new record
+with status 201. It assigns an `UPLOAD-` UUID so an upload cannot overwrite a
+seed entry. `GET /runbooks` returns the full library. Validation failures return
+422 and storage failures return 503. Uploads persist across incidents and become
+searchable immediately. The app has no approval workflow or document versioning;
+its existing local-workspace access boundary also governs library writes.
+
+Runbooks describe official procedures and expected behavior. Attached documents
+are supplemental incident context, stored in a request scope and removed after
+execution, with expiry as a fallback. They never become official runbooks merely
+by being attached. Both comparison providers receive the same reference-type tags.
+Comparison protocol v2 and runtime prompt v2 prefer applicable runbooks for
+procedure guidance, but neither reference type overrides observations. Unresolved
+conflicts must not be treated as proof of a cause. No numeric importance weight is
+assigned to either group. Similarity selects up to three runbooks and three
+attachments independently, without a service filter or minimum similarity cutoff.
+Only observation IDs can support a diagnosis. The UI shows the retrieved subset
+separately from the full library; it does not measure each reference's causal
+influence on a decision.
+
+Model cards separate input and output tokens and sum usage across returned calls.
+Failed branches label token totals as partial. Tokenization and provider accounting
+differ, so a larger Jev count does not by itself mean greater cost or worse quality.
+The application does not establish why one provider reports more tokens on a
+particular incident. Both branches use the same context, though native request
+formats and the number of completed stages can differ.
+
+Jev's API returns token usage without a billed cost. For `jev-1.13.0`, the app
+shows **Estimated cost**, calculated as input tokens × $0.042 / 1,000,000; output
+tokens are free. This rate was checked on 2026-09-22 against the
+[TypeSafe model documentation](https://docs.typesafe.ai/models).
+`estimated_cost_usd` and `cost_basis` remain separate from `reported_cost_usd`
+in the exported events. The estimate excludes shared retrieval and embedding
+work, is not an invoice, and needs updating when pricing changes. Unknown Jev
+versions do not inherit this estimate. Provider-reported cost takes precedence.
+
+The optional **Reference answer** selects a candidate or "No hypothesis
+established." Each card reports match or mismatch against that answer. Failed
+branches remain unassessed. The browser captures the reference answer at submission
+and includes it in the result export, but never sends it to either model. Editing
+candidate text clears the selection. Without a reference answer there is no
+correctness score. One match is not an accuracy benchmark, and Choice confidence
+is not accuracy.
+
+For an existing database, reapply `database/init.sql` and run
+`python -m resolve_ai.populate_runbook_embeddings --database-url <database-url>`
+with the project's Python environment, as in the setup instructions. The seed
+update preserves uploaded entries and existing unchanged embeddings. Historical
+nine-runbook evaluation results describe the earlier corpus; adding seeds or
+uploads can change retrieval and requires fresh evaluation before comparing scores.
+No live provider evaluation or browser smoke test was run for this change.

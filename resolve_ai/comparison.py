@@ -157,7 +157,12 @@ def run_comparison(
                 "incident": incident.model_dump(mode="json"),
                 "evidence": [e.model_dump(mode="json") for e in evidence],
                 "references": [
-                    r.model_dump(mode="json") for r in [*runbooks, *references]
+                    {**r.model_dump(mode="json"), "reference_type": kind}
+                    for kind, group in (
+                        ("official_runbook", runbooks),
+                        ("attached_document", references),
+                    )
+                    for r in group
                 ],
             }
             # Reject oversized comparison contexts before either provider spends a call.

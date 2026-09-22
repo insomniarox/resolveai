@@ -495,7 +495,7 @@ def test_runtime_run_explicitly_saves_a_complete_provenance_snapshot(
     }
     assert snapshot["execution"] == {
         "application_version": APPLICATION_VERSION,
-        "prompt_version": "runtime-investigation-v1",
+        "prompt_version": "runtime-investigation-v2",
         "output_schema_version": "runtime-reasoning-decision-v1",
         "retrieval_strategy": "semantic",
         "retrieval_limit": 3,
