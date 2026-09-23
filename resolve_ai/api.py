@@ -28,6 +28,7 @@ Prepared-incident request flow:
 """
 
 import os
+import secrets
 from datetime import timedelta
 from queue import SimpleQueue
 from threading import BoundedSemaphore, Thread
@@ -36,8 +37,9 @@ from uuid import UUID
 
 import psycopg
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from resolve_ai import APPLICATION_VERSION
 from resolve_ai.comparison import run_comparison
@@ -75,6 +77,7 @@ from resolve_ai.runtime_reasoner import (
 )
 from resolve_ai.telemetry import configure_console_tracing
 
+load_dotenv()
 configure_console_tracing()
 
 # Uvicorn imports this application object from ``resolve_ai.api:app`` when the
@@ -82,6 +85,26 @@ configure_console_tracing()
 app = FastAPI(title="ResolveAI", version=APPLICATION_VERSION)
 _runtime_reasoner_gate = BoundedSemaphore(value=1)
 _runtime_knowledge_retention = timedelta(minutes=15)
+_runbook_admin_bearer = HTTPBearer(auto_error=False)
+
+
+def require_runbook_admin(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_runbook_admin_bearer)
+    ],
+) -> None:
+    """Require the server's admin token before allowing a library write."""
+    expected = os.environ.get("RUNBOOK_ADMIN_TOKEN", "")
+    if len(expected) < 32:
+        raise HTTPException(503, "Runbook uploads are not configured.")
+    if credentials is None or not secrets.compare_digest(
+        credentials.credentials, expected
+    ):
+        raise HTTPException(
+            401,
+            "Runbook admin token is missing or incorrect.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def _get_database_url() -> str:
@@ -376,7 +399,12 @@ def get_runbooks() -> list[LibraryRunbook]:
         raise HTTPException(503, "Runbook library is unavailable.") from error
 
 
-@app.post("/runbooks", response_model=LibraryRunbook, status_code=201)
+@app.post(
+    "/runbooks",
+    response_model=LibraryRunbook,
+    status_code=201,
+    dependencies=[Depends(require_runbook_admin)],
+)
 def create_runbook(document: RunbookUpload) -> LibraryRunbook:
     """Store an operator-designated official runbook with its embedding."""
     try:

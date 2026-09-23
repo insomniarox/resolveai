@@ -29,6 +29,7 @@ export function RunbookLibrary({
   const [title, setTitle] = useState("");
   const [service, setService] = useState("");
   const [content, setContent] = useState("");
+  const [adminToken, setAdminToken] = useState("");
   const [message, setMessage] = useState("");
   const fileVersion = useRef(0);
   async function refresh() {
@@ -109,14 +110,21 @@ export function RunbookLibrary({
             try {
               const response = await fetch("/api/runbooks", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${adminToken.trim()}`,
+                },
                 body: JSON.stringify({ title, service, content }),
               });
               if (!response.ok)
                 throw new Error(
-                  response.status === 422
-                    ? "Use a title, service and 1–6,000 characters of text."
-                    : "Runbook could not be stored. Refresh the library before retrying.",
+                  response.status === 401
+                    ? "Runbook admin token is missing or incorrect."
+                    : response.status === 422
+                      ? "Use a title, service and 1–6,000 characters of text."
+                      : response.status === 503
+                        ? "Runbook uploads are unavailable. Check the API configuration or retry later."
+                        : "Runbook could not be stored. Refresh the library before retrying.",
                 );
               const created: Runbook = await response.json();
               setRunbooks((current) =>
@@ -129,6 +137,7 @@ export function RunbookLibrary({
               setTitle("");
               setService("");
               setContent("");
+              setAdminToken("");
               fileVersion.current++;
               setMessage(
                 `Added ${created.title}. It is now searchable for future assessments.`,
@@ -151,6 +160,16 @@ export function RunbookLibrary({
               designates it as official guidance for this workspace. Maximum
               6,000 characters. The included example runbooks are synthetic.
             </p>
+            <label>
+              Runbook admin token
+              <input
+                type="password"
+                autoComplete="off"
+                required
+                value={adminToken}
+                onChange={(e) => setAdminToken(e.target.value)}
+              />
+            </label>
             <label>
               Runbook file
               <input
@@ -225,7 +244,12 @@ export function RunbookLibrary({
             <button
               type="submit"
               className="primary-button"
-              disabled={!title.trim() || !service.trim() || !content.trim()}
+              disabled={
+                !adminToken.trim() ||
+                !title.trim() ||
+                !service.trim() ||
+                !content.trim()
+              }
             >
               {busy ? "Adding runbook…" : "Add official runbook"}
             </button>
