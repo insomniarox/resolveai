@@ -1,5 +1,7 @@
 # Jev bounded decision experiment
 
+> Historical evaluation record. This experiment used fixed input states without retrieval. Its scores do not measure the current application or its mutable runbook library. See [README](../README.md) for the current flow.
+
 Run on 2026-09-21. Jev is promising for bounded cause selection in ResolveAI.
 This experiment does not establish that it can replace the runtime reasoner.
 The harder evidence-support task exposed both model differences and rubric ambiguity.

@@ -1,5 +1,7 @@
 # Jev pressure cases and production protocol
 
+> Historical evaluation record. These scores use fixed cases and controlled reference text; the product regression reused those cases. They do not measure retrieval against the current mutable runbook library. See [README](../README.md) for the current flow.
+
 Evaluated on 2026-09-21. All old datasets and result artifacts remain unchanged.
 
 ## Harder decision cases
