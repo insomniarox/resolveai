@@ -26,6 +26,7 @@ export function RunbookLibrary({
   const [runbooks, setRunbooks] = useState<Runbook[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [service, setService] = useState("");
   const [content, setContent] = useState("");
@@ -46,18 +47,17 @@ export function RunbookLibrary({
     return () => abort.abort();
   }, []);
   return (
-    <section
-      className="panel runbook-library"
-      aria-labelledby="runbook-library-heading"
-    >
-      <div className="panel-heading">
-        <h2 id="runbook-library-heading">Official runbook library</h2>
-        <span className="count-summary">
+    <details className="panel runbook-library comparison-editor-details">
+      <summary>
+        Official runbook library
+        <span>
           {runbooks
             ? `${runbooks.length} runbooks · ${runbooks.filter((r) => r.ready).length} searchable`
-            : "Library not loaded"}
+            : error
+              ? "Library unavailable"
+              : "Loading library…"}
         </span>
-      </div>
+      </summary>
       <p className="comparison-note">
         Runbooks describe official procedures and expected system behavior. They
         persist across incidents. Attachments are temporary context for one
@@ -70,36 +70,32 @@ export function RunbookLibrary({
         attachments separately. Results show exactly which references reached
         both models.
       </p>
-      <button
-        type="button"
-        className="secondary-button"
-        disabled={busy || disabled}
-        onClick={() => {
-          setError(null);
-          refresh().catch((e) => setError(e.message));
-        }}
-      >
-        Refresh library
-      </button>
-      {runbooks?.length === 0 && <p>No runbooks stored yet.</p>}
-      {runbooks && (
-        <ul className="runbook-list">
-          {runbooks.map((r) => (
-            <li key={r.id}>
-              <details className="reference-detail">
-                <summary>
-                  {r.title} · {r.service} ·{" "}
-                  {r.ready ? "Searchable" : "Awaiting embedding"}
-                </summary>
-                <code>{r.id}</code>
-                <p className="reference-content">{r.content}</p>
-              </details>
-            </li>
-          ))}
-        </ul>
-      )}
-      <details>
-        <summary>Add an official runbook</summary>
+      <div className="runbook-actions">
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy || disabled}
+          onClick={() => {
+            setError(null);
+            refresh().catch((e) => setError(e.message));
+          }}
+        >
+          Refresh library
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          aria-expanded={adding}
+          disabled={busy || disabled}
+          onClick={() => {
+            if (adding) fileVersion.current++;
+            setAdding(!adding);
+          }}
+        >
+          {adding ? "Cancel adding" : "Add runbook"}
+        </button>
+      </div>
+      {adding && (
         <form
           className="runtime-form"
           onSubmit={async (e) => {
@@ -139,6 +135,7 @@ export function RunbookLibrary({
               setContent("");
               setAdminToken("");
               fileVersion.current++;
+              setAdding(false);
               setMessage(
                 `Added ${created.title}. It is now searchable for future assessments.`,
               );
@@ -255,9 +252,26 @@ export function RunbookLibrary({
             </button>
           </fieldset>
         </form>
-      </details>
+      )}
+      {runbooks?.length === 0 && <p>No runbooks stored yet.</p>}
+      {runbooks && (
+        <ul className="runbook-list">
+          {runbooks.map((r) => (
+            <li key={r.id}>
+              <details className="reference-detail">
+                <summary>
+                  {r.title} · {r.service} ·{" "}
+                  {r.ready ? "Searchable" : "Awaiting embedding"}
+                </summary>
+                <code>{r.id}</code>
+                <p className="reference-content">{r.content}</p>
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <p role="alert">{error}</p>}
       {message && <p role="status">{message}</p>}
-    </section>
+    </details>
   );
 }

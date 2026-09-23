@@ -1432,8 +1432,8 @@ h1, h2, h3 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-w
 .observation-detail dt, .observation-detail dd { overflow-wrap: anywhere; font-size: .78rem; }
 .observation-detail dd { margin: 0; font-family: "IBM Plex Mono", monospace; }
 
-.runbook-library { padding: 1.5rem; }
-.runbook-library .panel-heading { gap: 1rem; flex-wrap: wrap; }
+.runbook-library { padding: .85rem 1rem; }
+.runbook-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
 .runbook-list { list-style: none; padding: 0; max-height: 24rem; overflow-y: auto; }
 .runbook-library label { display: grid; gap: .4rem; margin-block: .8rem; }
 .runbook-library input, .runbook-library textarea { width: 100%; }
