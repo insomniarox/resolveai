@@ -18,9 +18,9 @@ A candidate is reported as supported only when at least one observation supports
 
 The Compare models page lists the entire library by title and service, with total and searchable counts. Expanding a runbook shows its content. The seed contains 15 synthetic examples. The result panel separately shows the runbooks actually retrieved for that assessment.
 
-An operator can add an official runbook by uploading UTF-8 `.md`, `.markdown`, or `.txt` or pasting text. The browser limits a file to 24 KB and the content to 6,000 characters. The API requires a nonblank title and service, embeds the text before insertion, and assigns an `UPLOAD-` UUID. Successful uploads persist and are immediately searchable. There is no approval or versioning workflow. **The current API has no authentication or authorization for `POST /runbooks`.** Next.js forwards public `/api` requests to the private API, so anyone who can reach the public site can submit a runbook. The "official" label is an operator designation, not an enforced approval. Add access control before treating uploads as trusted firm policy.
+An operator can add an official runbook by uploading UTF-8 `.md`, `.markdown`, or `.txt` or pasting text. The browser limits a file to 24 KB and the content to 6,000 characters. The API requires a nonblank title and service, embeds the text before insertion, and assigns an `UPLOAD-` UUID. Successful uploads persist and are immediately searchable. There is no approval or versioning workflow. `POST /runbooks` requires a Bearer token matching `RUNBOOK_ADMIN_TOKEN` on FastAPI. Without a configured token of at least 32 characters, uploads fail closed with 503. A missing or incorrect token returns 401. The public site can still list runbooks; the upload form asks for the token and clears it after a successful upload. The token is not stored in the incident, comparison, browser storage, or downloaded JSON.
 
-`GET /runbooks` lists stored runbooks. `POST /runbooks` accepts JSON with `title`, `service`, and `content`. A failed embedding leaves no partial upload.
+`GET /runbooks` lists stored runbooks without a token. `POST /runbooks` accepts JSON with `title`, `service`, and `content`, plus `Authorization: Bearer <token>`. A failed embedding leaves no partial upload. The shared token controls publication, but it does not identify individual editors or review content.
 
 ## Comparison measurements
 
@@ -45,7 +45,7 @@ DATABASE_URL=postgresql://resolveai:resolveai@localhost:5432/resolveai \
   uv run uvicorn resolve_ai.api:app --reload
 ```
 
-To use live models, copy `.env.example` to `.env` and set the required keys. Ordinary runtime inference uses `RESOLVEAI_RUNTIME_PROVIDER=openrouter` with `OPENROUTER_API_KEY`, or `openai` with `OPENAI_API_KEY`. Comparison requires both `OPENROUTER_API_KEY` and `TYPESAFE_API_KEY` on the API service. The comparison models are `openai/gpt-5.6-luna` and `jev-1.13.0`. Secrets stay server-side.
+To use live models or publish runbooks locally, copy `.env.example` to `.env` and set the required keys. Generate a runbook admin token with `openssl rand -hex 32` and set `RUNBOOK_ADMIN_TOKEN` on the API service only. Ordinary runtime inference uses `RESOLVEAI_RUNTIME_PROVIDER=openrouter` with `OPENROUTER_API_KEY`, or `openai` with `OPENAI_API_KEY`. Comparison requires both `OPENROUTER_API_KEY` and `TYPESAFE_API_KEY` on the API service. The comparison models are `openai/gpt-5.6-luna` and `jev-1.13.0`. Secrets stay server-side.
 
 In a second terminal:
 
@@ -63,7 +63,7 @@ For the complete local container topology, run `docker compose build api web` an
 
 ## Northflank deployment and seed updates
 
-Northflank deploys product commits on `main`. The public Next.js service talks to private FastAPI and PostgreSQL services. The database uses TLS. Run the embedding command in the API container after adding seed rows:
+Northflank deploys product commits on `main`. The public Next.js service talks to private FastAPI and PostgreSQL services. The database uses TLS. Configure `RUNBOOK_ADMIN_TOKEN` as a secret on the **API service** before deploying the guarded upload route. Generate it with `openssl rand -hex 32`, share it only with people allowed to publish official runbooks, and enter it in the upload form when needed. Do not set it as a public web build variable. This auth change requires an API rollout but no database change. Run the embedding command in the API container after adding seed rows:
 
 ```bash
 python -m resolve_ai.populate_runbook_embeddings --database-url "$DATABASE_URL"

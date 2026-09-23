@@ -21,6 +21,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      RUNBOOK_ADMIN_TOKEN: ${RUNBOOK_ADMIN_TOKEN:-}
     ports:
       - "8000:8000"
     depends_on:
