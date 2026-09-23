@@ -1,5 +1,7 @@
 # Phase 7.6 runtime contract report
 
+> Historical evaluation record. The fixed cases and earlier runbook corpus used here differ from the current 15-seed library, which also accepts uploads. These scores do not measure its present retrieval behavior. See [README](../README.md) for the current flow.
+
 ## Scope
 
 Phase 7.6 asks whether ResolveAI can measure causal correctness separately from
